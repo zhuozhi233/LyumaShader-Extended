@@ -52,9 +52,10 @@ jobs:
           body: |
             VPM/VCC 软件包。
 
-            - 支持 lilToon、lilToon Custom Shader 与 Poiyomi
-            - 不通过 VPM 强制限定 lilToon 最低版本
-            - 提供批量转换、参数修改、移除和动画生成功能
+            - 新增可逆的 MA Mesh Settings Root Bone 修复，自动统一到 Hips 并计算公共 Bounds
+            - 修复 Waifu2d.cginc 路径查找以及 lilToon FakeShadow、MultiOutline、Outline Z Bias 兼容问题
+            - 批量工具支持 2D 强度，默认 Z 深度修正调整为 0.8
+            - 支持 lilToon、lilToon Custom Shader 与 Poiyomi，且不强制限定 lilToon 最低版本
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip

@@ -11,9 +11,18 @@
 - 自动识别使用 `.lilcontainer` 的 lilToon Custom Shader，例如 SuperLilToonCyber。
 - 支持 Poiyomi Shader。
 - 批量转换模型、Prefab、材质和当前多选对象。
-- 批量修改朝向、锁定轴和 Z 深度修正。
+- 批量修改 2D 强度、朝向、锁定轴和 Z 深度修正。
 - 一键移除 Waifu2d，并恢复转换前的 Shader。
 - 为已经转换的材质生成“关闭 2D”和“开启 2D”两个动画。
+- 在模型 Root 上一键添加或还原 `MA Mesh Settings`，统一到 Humanoid `Hips` 并自动计算公共 Bounds。
+
+## 1.1.0 更新
+
+- 新增 Root Bone 修复与可逆还原，解决衣服、头发使用不同根骨骼时的二维位置问题。
+- 修复旧工程中 `Waifu2d.cginc` 路径查找失败的问题。
+- 改善 lilToon FakeShadow、MultiOutline 和 `_OutlineZBias` 的兼容性。
+- 默认 Z 深度修正调整为 `0.8`，降低二维状态下的穿模和闪烁。
+- 批量工具菜单调整为 `Tools > LyumaShader Extended > Waifu2d 批量工具`。
 
 ## 安装
 
@@ -35,9 +44,9 @@
 
 打开 Unity 菜单：
 
-`Tools > LyumaShader > lilToon（含 Custom）+ Poiyomi 批量 2D 工具`
+`Tools > LyumaShader Extended > Waifu2d 批量工具`
 
-在窗口中扫描模型材质或读取当前多选，然后执行转换、批量参数修改、移除或动画生成。
+在窗口中扫描模型材质或读取当前多选，然后执行转换、批量参数修改、移除、动画生成或 Root Bone 修复。
 
 也可以右键材质：
 
@@ -50,14 +59,15 @@
 
 - 首次转换 lilToon Custom Shader 时，需要等待 Unity 生成和导入对应变体。
 - 生成文件不会写入第三方插件目录，也不会修改 `Packages/jp.lilxyzw.liltoon`。
-- 所有需要对齐的网格最好使用相同的 SkinnedMeshRenderer Root Bone。
-- 混合显示 2D 和 3D 部件时，可将 Z 深度修正调整到 `0.95` 至 `0.975`。
-- 使用 lilToon 适配前请自行安装 lilToon；VPM 包不强制最低版本。Poiyomi 为可选依赖。
+- 推荐 Z 深度修正值为 `0.8`；仍可根据模型的网格层次自行调整。
+- Root Bone 修复需要 Modular Avatar，VCC 安装时会自动处理该依赖。
+- 使用 lilToon 适配前请自行安装 lilToon；本包不通过 VPM 强制限定 lilToon 最低版本。Poiyomi 为可选依赖。
 
 ## 兼容环境
 
 - Unity `2022.3`
-- lilToon：`2.3.4` 
+- Modular Avatar `1.12.0` 或更高版本
+- lilToon：以 `2.3.4` 测试，不强制最低版本
 - Poiyomi `9.3.64`
 
 旧版本能否正常运行取决于其接口兼容性

@@ -7,32 +7,71 @@
 #include "../../Waifu2d.cginc"
 #undef NO_UNIFORMS
 
+#if defined(LIL_OUTLINE) && !defined(LIL_PASS_SHADOWCASTER_INCLUDED) && !defined(LIL_PASS_MOTIONVECTOR_INCLUDED) && !(defined(LIL_URP) && defined(LIL_PASS_DEPTHONLY_INCLUDED))
+    #define LYUMA_OUTLINE_ZBIAS_CLIPSPACE
+#endif
+
 void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput)
 {
-    // Keep the original clip position in a field that will be recomputed below.
-    // It is used to retain Lyuma's depth-squash / z-fighting correction.
+    // Keep the clip-space depth reference in a field that will be recomputed below.
+    // positionSS.x temporarily carries an outline-only NDC depth offset; z/w carry
+    // the depth reference used by Lyuma's depth-squash / z-fighting correction.
     float4 originalPositionCS = vertexInput.positionCS;
+    float4 depthReferenceCS = originalPositionCS;
+    float outlineZBiasNDC = 0.0;
 
     // lilToon can use camera-relative world coordinates (notably in HDRP), while
     // the original Waifu2d implementation operates in absolute world space.
     float3 positionWS = lilToAbsolutePositionWS(vertexInput.positionWS);
-    float3 flattenedWS = waifu_computeWorldFlatWorldPos(float4(positionWS, 1.0)).xyz;
+    float3 flattenedWS;
+
+    // lilToon's outline Z Bias is applied in object space before this custom
+    // world-space hook. Rebuild the pre-bias position and flatten that geometry,
+    // but retain the original bias as an NDC depth-only offset. Restoring the
+    // whole world-space vector would create visible thickness from side views.
+    #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
+        float3 biasedPositionOS = lilTransformWStoOS(vertexInput.positionWS);
+        float3 outlineViewDirectionOS = lilIsPerspective()
+            ? lilViewDirectionOS(biasedPositionOS)
+            : mul((float3x3)LIL_MATRIX_I_M, LIL_MATRIX_V._m20_m21_m22);
+        float3 preBiasPositionOS = biasedPositionOS + normalize(outlineViewDirectionOS) * _OutlineZBias;
+        float3 preBiasPositionWS = lilToAbsolutePositionWS(lilTransformOStoWS(preBiasPositionOS));
+        float4 preBiasPositionCS = lilGetVertexPositionInputs(preBiasPositionOS).positionCS;
+        outlineZBiasNDC = originalPositionCS.z / nonzeroify(originalPositionCS.w)
+            - preBiasPositionCS.z / nonzeroify(preBiasPositionCS.w);
+        depthReferenceCS = preBiasPositionCS;
+        flattenedWS = waifu_computeWorldFlatWorldPos(float4(preBiasPositionWS, 1.0)).xyz;
+    #else
+        flattenedWS = waifu_computeWorldFlatWorldPos(float4(positionWS, 1.0)).xyz;
+    #endif
+
     vertexInput.positionWS = lilToRelativePositionWS(lerp(positionWS, flattenedWS, waifu_coef));
-    vertexInput.positionSS = originalPositionCS;
+    vertexInput.positionSS = float4(outlineZBiasNDC, 0.0, depthReferenceCS.z, depthReferenceCS.w);
 }
 
 lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionInputs vertexInput)
 {
-    float4 originalPositionCS = vertexInput.positionSS;
+    float4 depthReferenceData = vertexInput.positionSS;
+    float outlineZBiasNDC = depthReferenceData.x;
     vertexInput = lilReGetVertexPositionInputs(vertexInput);
 
     if(waifu_coef > 1.0e-6)
     {
-        float correctedZ = sign(originalPositionCS.w * originalPositionCS.z * vertexInput.positionCS.w)
-            * max(0.00001, abs(originalPositionCS.z))
+        float correctedZ = sign(depthReferenceData.w * depthReferenceData.z * vertexInput.positionCS.w)
+            * max(0.00001, abs(depthReferenceData.z))
             * max(0.00001, abs(vertexInput.positionCS.w))
-            / max(0.00001, abs(originalPositionCS.w));
+            / max(0.00001, abs(depthReferenceData.w));
         vertexInput.positionCS.z = lerp(correctedZ, vertexInput.positionCS.z, _zcorrect_coef);
+
+        #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
+            // The remaining physical bias shrinks with 2D Amount and contributes
+            // through the flattened-depth side of the blend. Add only the missing
+            // portion in clip space so the depth separation stays stable without
+            // restoring any world-space thickness.
+            float missingOutlineBias = 1.0 - _zcorrect_coef * (1.0 - waifu_coef);
+            vertexInput.positionCS.z += outlineZBiasNDC * vertexInput.positionCS.w * missingOutlineBias;
+        #endif
+
         vertexInput.positionSS = lilTransformCStoSS(vertexInput.positionCS);
     }
 

@@ -9,6 +9,8 @@ namespace LyumaShader {
         const bool USE_INCLUDE = false;
         const string GENERATED_POIYOMI_FOLDER = "Assets/LyumaShader/Waifu2d/Generated/Poiyomi";
         const string POIYOMI_PACKAGE_PREFIX = "Packages/com.poiyomi.toon/";
+        const string PACKAGE_WAIFU2D_INCLUDE = "Packages/com.zhuozhi.lyumashader-extended/Waifu2d/Waifu2d.cginc";
+        const string ASSETS_WAIFU2D_INCLUDE = "Assets/LyumaShader/Waifu2d/Waifu2d.cginc";
 
         //[MenuItem ("Tools/Lyuma Waifu2d")]
         //MenuItem("GameObject/Create Mesh")
@@ -388,20 +390,9 @@ namespace LyumaShader {
                 return null;
             }
 
-            string [] shader2dassets = AssetDatabase.FindAssets ("Waifu2d.cginc");
-            string includeAssetPath = null;
-            foreach (string guid in shader2dassets) {
-                string candidatePath = AssetDatabase.GUIDToAssetPath (guid).Replace ('\\', '/');
-                Debug.Log ("testI: " + candidatePath);
-                if (!candidatePath.EndsWith ("/Waifu2d/Waifu2d.cginc", StringComparison.OrdinalIgnoreCase)) {
-                    continue;
-                }
-                includeAssetPath = candidatePath;
-                break;
-            }
-            if (string.IsNullOrEmpty (includeAssetPath) ||
-                (!includeAssetPath.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase) &&
-                 !includeAssetPath.StartsWith ("Packages/", StringComparison.OrdinalIgnoreCase))) {
+            string includeAssetPath;
+            string cgincCode;
+            if (!TryLocateWaifu2dInclude (out includeAssetPath, out cgincCode)) {
                 EditorUtility.DisplayDialog ("Waifu2d", "Could not locate Waifu2d.cginc in Assets or Packages.", "OK", "");
                 return null;
             }
@@ -409,7 +400,6 @@ namespace LyumaShader {
                 ? includeAssetPath.Substring (7)
                 : includeAssetPath;
             Debug.Log("Including code from " + includePath);
-            string cgincCode = File.ReadAllText(includeAssetPath);
             int numSlashes = 0;
             bool isAssetSource = path.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase);
             bool isPoiyomiPackageSource = path.Replace ('\\', '/').StartsWith (POIYOMI_PACKAGE_PREFIX, StringComparison.OrdinalIgnoreCase);
@@ -461,7 +451,7 @@ namespace LyumaShader {
                 "        _2d_coef (\"Twodimensionalness\", Range(0, 1)) = 0.99\n" +
                 "        _facing_coef (\"Face in Profile\", Range (-1, 1)) = 0.0\n" +
                 "        _lock2daxis_coef (\"Lock 2d Axis\", Range (0, 1)) = " + (vr2d ? "0.0" : "1.0") + "\n" +
-                "        _zcorrect_coef (\"Squash Z (good=.975; 0=3d; 1=z-fight)\", Float) = " + (vr2d ? "0.0" : "0.975") + "\n";
+                "        _zcorrect_coef (\"Squash Z (recommended=.8; 0=3d depth; 1=z-fight)\", Float) = " + (vr2d ? "0.0" : "0.8") + "\n";
             epLine = epLine.Substring (0, beginPropertiesSkip) + propertiesAdd + epLine.Substring (beginPropertiesSkip);
             shaderData [beginPropertiesLineNum] = epLine;
 
@@ -508,6 +498,59 @@ namespace LyumaShader {
             //FileUtil.MoveFileOrDirectory (dest, finalDest);
             AssetDatabase.ImportAsset (finalDest);
             return (Shader)AssetDatabase.LoadAssetAtPath (finalDest, typeof (Shader));
+        }
+
+        static bool TryLocateWaifu2dInclude (out string includeAssetPath, out string cgincCode) {
+            // AssetDatabase.FindAssets does not reliably return shader include files from
+            // Packages in every Unity/project import state. Prefer the known VPM path,
+            // retain the original Assets layout, then discover renamed/embedded packages.
+            if (TryReadWaifu2dInclude (PACKAGE_WAIFU2D_INCLUDE, out cgincCode)) {
+                includeAssetPath = PACKAGE_WAIFU2D_INCLUDE;
+                return true;
+            }
+            if (TryReadWaifu2dInclude (ASSETS_WAIFU2D_INCLUDE, out cgincCode)) {
+                includeAssetPath = ASSETS_WAIFU2D_INCLUDE;
+                return true;
+            }
+
+            foreach (string assetPath in AssetDatabase.GetAllAssetPaths ()) {
+                string candidatePath = assetPath.Replace ('\\', '/');
+                if (!candidatePath.EndsWith ("/Waifu2d/Waifu2d.cginc", StringComparison.OrdinalIgnoreCase)) {
+                    continue;
+                }
+                if (!candidatePath.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase) &&
+                    !candidatePath.StartsWith ("Packages/", StringComparison.OrdinalIgnoreCase)) {
+                    continue;
+                }
+                if (TryReadWaifu2dInclude (candidatePath, out cgincCode)) {
+                    includeAssetPath = candidatePath;
+                    return true;
+                }
+            }
+
+            includeAssetPath = null;
+            cgincCode = null;
+            return false;
+        }
+
+        static bool TryReadWaifu2dInclude (string assetPath, out string cgincCode) {
+            cgincCode = null;
+            string physicalPath = FileUtil.GetPhysicalPath (assetPath);
+            if (string.IsNullOrEmpty (physicalPath)) {
+                physicalPath = assetPath;
+            }
+            if (!File.Exists (physicalPath)) {
+                return false;
+            }
+
+            try {
+                cgincCode = File.ReadAllText (physicalPath);
+                return true;
+            } catch (Exception e) {
+                Debug.LogWarning ("Failed to read Waifu2d.cginc at " + physicalPath + ": " + e.Message);
+                cgincCode = null;
+                return false;
+            }
         }
 
         static string RewriteRelativeInclude (string line, string sourcePath) {

@@ -9,7 +9,7 @@ Shader "LyumaShader/DropShadowLiteToonTransparent"
         _facing_coef ("Face in Profile", Range (-1, 1)) = 0.0
         _lock2daxis_coef ("Lock 2d Axis", Range (0, 1)) = 1.0
         //_local3d_coef ("See self in 3d", Range (0, 1)) = 0.0
-        //_zcorrect_coef ("Squash Z (good=.975; 0=3d; 1=z-fight)", Float) = 0.975
+        //_zcorrect_coef ("Squash Z (recommended=.8; 0=3d depth; 1=z-fight)", Float) = 0.8
         //_ztweak_coef ("Tweak z clip", Range (-1, 1)) = 0.0
         _shadow_offset ("Shadow Offset [W=hardness,0-100]", Vector) = (0.03,0.015,0,3)
         _Color ("Color", Color) = (0,0,0,1)

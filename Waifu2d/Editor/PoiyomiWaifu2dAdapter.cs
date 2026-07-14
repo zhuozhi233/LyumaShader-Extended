@@ -100,7 +100,7 @@ namespace LyumaShader
             material.SetFloat("_2d_coef", 0.99f);
             material.SetFloat("_facing_coef", 0.0f);
             material.SetFloat("_lock2daxis_coef", 1.0f);
-            material.SetFloat("_zcorrect_coef", 0.975f);
+            material.SetFloat("_zcorrect_coef", 0.8f);
         }
 
         private static bool IsPoiyomiShader(Shader shader)

@@ -103,7 +103,7 @@ namespace LyumaShader
             material.SetFloat("_2d_coef", 0.99f);
             material.SetFloat("_facing_coef", 0.0f);
             material.SetFloat("_lock2daxis_coef", 1.0f);
-            material.SetFloat("_zcorrect_coef", 0.975f);
+            material.SetFloat("_zcorrect_coef", 0.8f);
         }
 
         private static bool TryDiscoverSourceFamily(Shader shader, out FamilyManifest manifest)
@@ -338,7 +338,7 @@ namespace LyumaShader
                 "        _2d_coef         (\"2D Amount\", Range(0, 1)) = 0.99\n" +
                 "        _facing_coef     (\"Facing Direction\", Range(-1, 1)) = 0.0\n" +
                 "        _lock2daxis_coef (\"Lock 2D Axis\", Range(0, 1)) = 1.0\n" +
-                "        _zcorrect_coef   (\"Squash Z (0.975 recommended)\", Float) = 0.975\n";
+                "        _zcorrect_coef   (\"Squash Z (0.8 recommended)\", Float) = 0.8\n";
             File.WriteAllText(propertiesPath, content, new UTF8Encoding(false));
         }
 
@@ -589,7 +589,7 @@ namespace LyumaShader
             materialEditor.ShaderProperty(facing, "Facing Direction / 朝向");
             materialEditor.ShaderProperty(lockAxis, "Lock 2D Axis / 锁定 2D 轴");
             materialEditor.ShaderProperty(squashZ, "Squash Z / Z 深度修正");
-            EditorGUILayout.HelpBox("Recommended Squash Z: 0.95 - 0.975", MessageType.Info);
+            EditorGUILayout.HelpBox("Recommended Squash Z / 推荐 Z 深度修正: 0.8", MessageType.Info);
             EditorGUI.indentLevel--;
         }
     }

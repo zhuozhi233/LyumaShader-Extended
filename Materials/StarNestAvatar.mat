@@ -164,7 +164,7 @@ Material:
     - _lock2daxis_coef: 0.8
     - _mode: 0
     - _srcblend: 1
-    - _zcorrect_coef: 0.975
+    - _zcorrect_coef: 0.8
     - _ztweak_coef: 0
     m_Colors:
     - _Center: {r: 1, g: 0.3, b: 0.5, a: 0}

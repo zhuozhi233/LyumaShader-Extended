@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using nadena.dev.modular_avatar.core;
 using UnityEditor;
 using UnityEngine;
 
@@ -19,30 +20,43 @@ namespace LyumaShader
         private const string FacingDirectionProperty = "_facing_coef";
         private const string LockAxisProperty = "_lock2daxis_coef";
         private const string SquashZProperty = "_zcorrect_coef";
+        private const int CurrentSettingsVersion = 1;
 
         [SerializeField] private GameObject modelRoot;
         [SerializeField] private DefaultAsset animationOutputFolder;
         [SerializeField] private List<Material> targetMaterials = new List<Material>();
 
+        [SerializeField] private bool applyTwoDimensionalness = true;
         [SerializeField] private bool applyFacingDirection = true;
         [SerializeField] private bool applyLockAxis = true;
         [SerializeField] private bool applySquashZ = true;
+        [SerializeField] private float twoDimensionalness = 0.99f;
         [SerializeField] private float facingDirection;
         [SerializeField] private float lockAxis = 1.0f;
-        [SerializeField] private float squashZ = 0.975f;
+        [SerializeField] private float squashZ = 0.8f;
+        [SerializeField] private int settingsVersion;
 
         [SerializeField] private bool showTargetMaterials;
         private Vector2 scrollPosition;
         private string statusMessage = "请拖入模型，或在层级/项目窗口中多选对象后读取。";
         private MessageType statusType = MessageType.Info;
 
-        [MenuItem("Tools/LyumaShader/lilToon（含 Custom）+ Poiyomi 批量 2D 工具")]
+        [MenuItem("Tools/LyumaShader Extended/Waifu2d 批量工具")]
         private static void OpenWindow()
         {
             var window = GetWindow<LilToonWaifu2dBatchWindow>();
             window.titleContent = new GUIContent("Waifu2d 批量工具");
             window.minSize = new Vector2(470.0f, 590.0f);
             window.Show();
+        }
+
+        private void OnEnable()
+        {
+            if(settingsVersion >= CurrentSettingsVersion) return;
+            applyTwoDimensionalness = true;
+            if(twoDimensionalness <= 0.0f) twoDimensionalness = 0.99f;
+            if(Mathf.Approximately(squashZ, 0.975f)) squashZ = 0.8f;
+            settingsVersion = CurrentSettingsVersion;
         }
 
         private void OnGUI()
@@ -187,6 +201,25 @@ namespace LyumaShader
                 ScanSelectionAndRun(RevertMaterials, "当前多选");
             }
             EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(8.0f);
+            EditorGUILayout.LabelField("Root Bone 修复", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "在模型 Root 上添加或更新一个 MA Mesh Settings，将 Bounds 模式设为“指定”，Root Bone 指向模型的 Hips。" +
+                "还原只撤销本工具保存的修改，不会误删用户原本的 MA Mesh Settings。",
+                MessageType.Info
+            );
+
+            EditorGUILayout.BeginHorizontal();
+            if(GUILayout.Button("修复 Root Bone", GUILayout.Height(28.0f)))
+            {
+                RunRootBoneRepair(false);
+            }
+            if(GUILayout.Button("还原 Root Bone 修复", GUILayout.Height(28.0f)))
+            {
+                RunRootBoneRepair(true);
+            }
+            EditorGUILayout.EndHorizontal();
         }
 
         private void DrawGeneralParametersSection()
@@ -194,6 +227,13 @@ namespace LyumaShader
             EditorGUILayout.LabelField("批量参数", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox("勾选需要写入的参数。未勾选的参数保持原值。", MessageType.None);
 
+            DrawOptionalSlider(
+                ref applyTwoDimensionalness,
+                ref twoDimensionalness,
+                new GUIContent("2D 强度", "2D Amount：0 为 3D，0.99 为推荐的 2D 值"),
+                0.0f,
+                1.0f
+            );
             DrawOptionalSlider(
                 ref applyFacingDirection,
                 ref facingDirection,
@@ -211,7 +251,7 @@ namespace LyumaShader
             DrawOptionalSlider(
                 ref applySquashZ,
                 ref squashZ,
-                new GUIContent("Z 深度修正", "Squash Z：通常推荐 0.95 到 0.975"),
+                new GUIContent("Z 深度修正", "Squash Z：推荐 0.8；数值越低越保留原始 3D 深度"),
                 0.0f,
                 1.0f
             );
@@ -340,7 +380,7 @@ namespace LyumaShader
 
         private void ApplyGeneralParameters(List<Material> materials, string sourceName)
         {
-            if(!applyFacingDirection && !applyLockAxis && !applySquashZ)
+            if(!applyTwoDimensionalness && !applyFacingDirection && !applyLockAxis && !applySquashZ)
             {
                 SetStatus("请至少勾选一个要批量修改的参数。", MessageType.Warning);
                 return;
@@ -364,6 +404,7 @@ namespace LyumaShader
                 }
 
                 Undo.RecordObject(material, "修改 Lyuma Waifu2d 参数");
+                if(applyTwoDimensionalness) material.SetFloat(TwoDimensionalnessProperty, twoDimensionalness);
                 if(applyFacingDirection) material.SetFloat(FacingDirectionProperty, facingDirection);
                 if(applyLockAxis) material.SetFloat(LockAxisProperty, lockAxis);
                 if(applySquashZ) material.SetFloat(SquashZProperty, squashZ);
@@ -425,16 +466,477 @@ namespace LyumaShader
             }
             FinishMaterialUndo(undoGroup);
 
+            string rootBoneRestoreStatus = TryAutoRestoreRootBoneRepair();
+
             SetStatus(
                 string.Format(
-                    "{0}：已恢复 {1} 个基础材质，原本未转换 {2} 个，失败 {3} 个。",
+                    "{0}：已恢复 {1} 个基础材质，原本未转换 {2} 个，失败 {3} 个。{4}",
                     sourceName,
                     reverted,
                     alreadyOriginal,
-                    failed
+                    failed,
+                    rootBoneRestoreStatus
                 ),
                 failed == 0 ? MessageType.Info : MessageType.Warning
             );
+        }
+
+        private void RunRootBoneRepair(bool restore)
+        {
+            GameObject requestedRoot = modelRoot != null ? modelRoot : Selection.activeGameObject;
+            if(requestedRoot == null)
+            {
+                SetStatus("请先指定模型根对象，或在层级窗口选中模型根对象。", MessageType.Warning);
+                return;
+            }
+
+            RootBoneRepairResult result = ProcessRootBoneRepairTarget(requestedRoot, restore, false);
+            if(!EditorUtility.IsPersistent(requestedRoot) && result.resolvedRoot != null)
+            {
+                modelRoot = result.resolvedRoot;
+            }
+            SetStatus(result.message, result.messageType);
+        }
+
+        private string TryAutoRestoreRootBoneRepair()
+        {
+            GameObject requestedRoot = modelRoot != null ? modelRoot : Selection.activeGameObject;
+            if(requestedRoot == null) return string.Empty;
+
+            RootBoneRepairResult result = ProcessRootBoneRepairTarget(requestedRoot, true, true);
+            if(result.changed) return "\n已同步还原本工具添加的 Root Bone 修复。";
+            if(result.skippedBecauseWaifu2d) return "\n模型中仍有已转换的 Waifu2d 材质，已保留 Root Bone 修复。";
+            return string.Empty;
+        }
+
+        private static RootBoneRepairResult ProcessRootBoneRepairTarget(
+            GameObject requestedRoot,
+            bool restore,
+            bool onlyWhenNoWaifu2d
+        )
+        {
+            if(!EditorUtility.IsPersistent(requestedRoot))
+            {
+                if(restore)
+                {
+                    GameObject restoreRoot = FindRootBoneRestoreRoot(requestedRoot);
+                    if(restoreRoot == null)
+                    {
+                        return RootBoneRepairResult.Unchanged(
+                            "模型上没有本工具保存的 Root Bone 修复记录。",
+                            MessageType.Info
+                        );
+                    }
+                    if(onlyWhenNoWaifu2d && HasWaifu2dMaterial(restoreRoot))
+                    {
+                        return RootBoneRepairResult.SkippedForWaifu2d(restoreRoot);
+                    }
+                    return RestoreRootBoneRepair(restoreRoot, true);
+                }
+
+                return ApplyRootBoneRepair(requestedRoot, true);
+            }
+
+            string assetPath = AssetDatabase.GetAssetPath(requestedRoot);
+            if(string.IsNullOrEmpty(assetPath) ||
+                !assetPath.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
+            {
+                return RootBoneRepairResult.Unchanged(
+                    "Root Bone 修复不能直接写入 FBX/模型资源。请将模型放入场景，或使用可编辑的 Prefab。",
+                    MessageType.Warning
+                );
+            }
+
+            GameObject prefabRoot = null;
+            try
+            {
+                prefabRoot = PrefabUtility.LoadPrefabContents(assetPath);
+                RootBoneRepairResult result;
+                if(restore)
+                {
+                    GameObject restoreRoot = FindRootBoneRestoreRoot(prefabRoot);
+                    if(restoreRoot == null)
+                    {
+                        return RootBoneRepairResult.Unchanged(
+                            "Prefab 上没有本工具保存的 Root Bone 修复记录。",
+                            MessageType.Info
+                        );
+                    }
+                    if(onlyWhenNoWaifu2d && HasWaifu2dMaterial(restoreRoot))
+                    {
+                        return RootBoneRepairResult.SkippedForWaifu2d(null);
+                    }
+                    result = RestoreRootBoneRepair(restoreRoot, false);
+                }
+                else
+                {
+                    result = ApplyRootBoneRepair(prefabRoot, false);
+                }
+
+                if(result.changed)
+                {
+                    PrefabUtility.SaveAsPrefabAsset(prefabRoot, assetPath);
+                    AssetDatabase.SaveAssets();
+                }
+                result.resolvedRoot = null;
+                return result;
+            }
+            catch(Exception exception)
+            {
+                return RootBoneRepairResult.Unchanged(
+                    "处理 Prefab 的 Root Bone 修复失败：" + exception.Message,
+                    MessageType.Error
+                );
+            }
+            finally
+            {
+                if(prefabRoot != null) PrefabUtility.UnloadPrefabContents(prefabRoot);
+            }
+        }
+
+        private static RootBoneRepairResult ApplyRootBoneRepair(GameObject requestedRoot, bool useUndo)
+        {
+            if(!TryResolveHumanoidRoot(requestedRoot, out GameObject avatarRoot, out Transform hips))
+            {
+                return RootBoneRepairResult.Unchanged(
+                    "没有找到有效的 Humanoid Animator 或 Hips，无法应用 Root Bone 修复。",
+                    MessageType.Warning
+                );
+            }
+
+            if(!TryCalculateCommonBounds(avatarRoot, hips, out Bounds commonBounds))
+            {
+                return RootBoneRepairResult.Unchanged(
+                    "模型中没有可用于计算 Bounds 的 Skinned Mesh Renderer。",
+                    MessageType.Warning
+                );
+            }
+
+            int undoGroup = BeginObjectUndo(useUndo, "修复 Waifu2d Root Bone");
+            try
+            {
+                ModularAvatarMeshSettings settings = avatarRoot.GetComponent<ModularAvatarMeshSettings>();
+                LyumaWaifu2dMeshSettingsRestoreState restoreState =
+                    avatarRoot.GetComponent<LyumaWaifu2dMeshSettingsRestoreState>();
+
+                if(restoreState != null && restoreState.TrackedMeshSettings == null)
+                {
+                    DestroyObject(restoreState, useUndo);
+                    restoreState = null;
+                }
+
+                if(restoreState == null)
+                {
+                    restoreState = AddComponent<LyumaWaifu2dMeshSettingsRestoreState>(avatarRoot, useUndo);
+                    RecordObject(restoreState, useUndo, "保存 MA Mesh Settings 原始状态");
+                    restoreState.hideFlags |= HideFlags.HideInInspector;
+                    restoreState.Capture(settings);
+                }
+
+                if(settings == null)
+                {
+                    settings = AddComponent<ModularAvatarMeshSettings>(avatarRoot, useUndo);
+                    RecordObject(restoreState, useUndo, "记录新建的 MA Mesh Settings");
+                    restoreState.TrackCreatedSettings(settings);
+                }
+
+                RecordObject(settings, useUndo, "设置 MA Mesh Settings Root Bone");
+                settings.InheritBounds = ModularAvatarMeshSettings.InheritMode.Set;
+                settings.RootBone = new AvatarObjectReference(hips.gameObject);
+                if(string.IsNullOrEmpty(settings.RootBone.referencePath))
+                {
+                    settings.RootBone.referencePath = AnimationUtility.CalculateTransformPath(
+                        hips,
+                        avatarRoot.transform
+                    );
+                }
+                settings.Bounds = commonBounds;
+
+                MarkObjectDirty(settings);
+                MarkObjectDirty(restoreState);
+
+                return RootBoneRepairResult.Changed(
+                    string.Format(
+                        "已在 {0} 上应用 Root Bone 修复：模式为“指定”，Root Bone 为 {1}，并统一了模型 Bounds。",
+                        avatarRoot.name,
+                        hips.name
+                    ),
+                    avatarRoot
+                );
+            }
+            finally
+            {
+                FinishObjectUndo(useUndo, undoGroup);
+            }
+        }
+
+        private static RootBoneRepairResult RestoreRootBoneRepair(GameObject avatarRoot, bool useUndo)
+        {
+            LyumaWaifu2dMeshSettingsRestoreState restoreState =
+                avatarRoot.GetComponent<LyumaWaifu2dMeshSettingsRestoreState>();
+            if(restoreState == null)
+            {
+                return RootBoneRepairResult.Unchanged(
+                    "模型上没有本工具保存的 Root Bone 修复记录。",
+                    MessageType.Info
+                );
+            }
+
+            int undoGroup = BeginObjectUndo(useUndo, "还原 Waifu2d Root Bone 修复");
+            try
+            {
+                ModularAvatarMeshSettings trackedSettings = restoreState.TrackedMeshSettings;
+                if(restoreState.CreatedMeshSettings)
+                {
+                    if(trackedSettings != null) DestroyObject(trackedSettings, useUndo);
+                }
+                else
+                {
+                    if(trackedSettings == null)
+                    {
+                        ModularAvatarMeshSettings currentSettings =
+                            avatarRoot.GetComponent<ModularAvatarMeshSettings>();
+                        if(currentSettings == null)
+                        {
+                            trackedSettings = AddComponent<ModularAvatarMeshSettings>(avatarRoot, useUndo);
+                        }
+                    }
+
+                    if(trackedSettings != null)
+                    {
+                        RecordObject(trackedSettings, useUndo, "恢复 MA Mesh Settings 原始状态");
+                        restoreState.Restore(trackedSettings);
+                        MarkObjectDirty(trackedSettings);
+                    }
+                }
+
+                DestroyObject(restoreState, useUndo);
+                return RootBoneRepairResult.Changed(
+                    "已还原本工具对 Root 上 MA Mesh Settings 所做的修改。",
+                    avatarRoot
+                );
+            }
+            finally
+            {
+                FinishObjectUndo(useUndo, undoGroup);
+            }
+        }
+
+        private static bool TryResolveHumanoidRoot(
+            GameObject requestedRoot,
+            out GameObject avatarRoot,
+            out Transform hips
+        )
+        {
+            avatarRoot = null;
+            hips = null;
+
+            Transform current = requestedRoot.transform;
+            while(current != null)
+            {
+                Animator animator = current.GetComponent<Animator>();
+                if(TryGetHips(animator, out hips))
+                {
+                    avatarRoot = animator.gameObject;
+                    return true;
+                }
+                current = current.parent;
+            }
+
+            foreach(Animator animator in requestedRoot.GetComponentsInChildren<Animator>(true))
+            {
+                if(!TryGetHips(animator, out hips)) continue;
+                avatarRoot = requestedRoot;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetHips(Animator animator, out Transform hips)
+        {
+            hips = null;
+            if(animator == null || !animator.isHuman) return false;
+            hips = animator.GetBoneTransform(HumanBodyBones.Hips);
+            return hips != null;
+        }
+
+        private static GameObject FindRootBoneRestoreRoot(GameObject requestedRoot)
+        {
+            Transform current = requestedRoot.transform;
+            while(current != null)
+            {
+                if(current.GetComponent<LyumaWaifu2dMeshSettingsRestoreState>() != null)
+                {
+                    return current.gameObject;
+                }
+                current = current.parent;
+            }
+
+            LyumaWaifu2dMeshSettingsRestoreState childState =
+                requestedRoot.GetComponentInChildren<LyumaWaifu2dMeshSettingsRestoreState>(true);
+            return childState != null ? childState.gameObject : null;
+        }
+
+        private static bool TryCalculateCommonBounds(
+            GameObject avatarRoot,
+            Transform targetRootBone,
+            out Bounds commonBounds
+        )
+        {
+            commonBounds = new Bounds();
+            bool hasBounds = false;
+
+            foreach(SkinnedMeshRenderer renderer in
+                avatarRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                if(renderer == null || renderer.sharedMesh == null) continue;
+
+                Transform sourceRootBone = renderer.rootBone != null
+                    ? renderer.rootBone
+                    : renderer.transform;
+                Matrix4x4 sourceToTarget =
+                    targetRootBone.worldToLocalMatrix * sourceRootBone.localToWorldMatrix;
+                EncapsulateTransformedBounds(
+                    ref commonBounds,
+                    ref hasBounds,
+                    renderer.localBounds,
+                    sourceToTarget
+                );
+            }
+
+            return hasBounds;
+        }
+
+        private static void EncapsulateTransformedBounds(
+            ref Bounds destination,
+            ref bool hasDestination,
+            Bounds source,
+            Matrix4x4 transform
+        )
+        {
+            Vector3 center = source.center;
+            Vector3 extents = source.extents;
+            for(int x = -1; x <= 1; x += 2)
+            {
+                for(int y = -1; y <= 1; y += 2)
+                {
+                    for(int z = -1; z <= 1; z += 2)
+                    {
+                        Vector3 corner = center + Vector3.Scale(
+                            extents,
+                            new Vector3(x, y, z)
+                        );
+                        Vector3 transformedCorner = transform.MultiplyPoint3x4(corner);
+                        if(!hasDestination)
+                        {
+                            destination = new Bounds(transformedCorner, Vector3.zero);
+                            hasDestination = true;
+                        }
+                        else
+                        {
+                            destination.Encapsulate(transformedCorner);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static bool HasWaifu2dMaterial(GameObject root)
+        {
+            foreach(Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            {
+                foreach(Material material in renderer.sharedMaterials)
+                {
+                    if(material != null && material.shader != null &&
+                        IsWaifu2dShader(material.shader))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static int BeginObjectUndo(bool useUndo, string groupName)
+        {
+            if(!useUndo) return -1;
+            Undo.IncrementCurrentGroup();
+            int group = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(groupName);
+            return group;
+        }
+
+        private static void FinishObjectUndo(bool useUndo, int group)
+        {
+            if(useUndo && group >= 0) Undo.CollapseUndoOperations(group);
+        }
+
+        private static T AddComponent<T>(GameObject gameObject, bool useUndo) where T : Component
+        {
+            return useUndo ? Undo.AddComponent<T>(gameObject) : gameObject.AddComponent<T>();
+        }
+
+        private static void DestroyObject(UnityEngine.Object target, bool useUndo)
+        {
+            if(target == null) return;
+            if(useUndo) Undo.DestroyObjectImmediate(target);
+            else UnityEngine.Object.DestroyImmediate(target);
+        }
+
+        private static void RecordObject(UnityEngine.Object target, bool useUndo, string actionName)
+        {
+            if(useUndo && target != null) Undo.RecordObject(target, actionName);
+        }
+
+        private static void MarkObjectDirty(UnityEngine.Object target)
+        {
+            if(target == null) return;
+            EditorUtility.SetDirty(target);
+            if(PrefabUtility.IsPartOfPrefabInstance(target))
+            {
+                PrefabUtility.RecordPrefabInstancePropertyModifications(target);
+            }
+        }
+
+        private struct RootBoneRepairResult
+        {
+            internal bool changed;
+            internal bool skippedBecauseWaifu2d;
+            internal string message;
+            internal MessageType messageType;
+            internal GameObject resolvedRoot;
+
+            internal static RootBoneRepairResult Changed(string message, GameObject resolvedRoot)
+            {
+                return new RootBoneRepairResult
+                {
+                    changed = true,
+                    message = message,
+                    messageType = MessageType.Info,
+                    resolvedRoot = resolvedRoot
+                };
+            }
+
+            internal static RootBoneRepairResult Unchanged(string message, MessageType messageType)
+            {
+                return new RootBoneRepairResult
+                {
+                    message = message,
+                    messageType = messageType
+                };
+            }
+
+            internal static RootBoneRepairResult SkippedForWaifu2d(GameObject resolvedRoot)
+            {
+                return new RootBoneRepairResult
+                {
+                    skippedBecauseWaifu2d = true,
+                    message = "模型中仍有已转换的 Waifu2d 材质，已保留 Root Bone 修复。",
+                    messageType = MessageType.Info,
+                    resolvedRoot = resolvedRoot
+                };
+            }
         }
 
         private static bool PrepareMaterialForEditing(Material material, ref int converted)

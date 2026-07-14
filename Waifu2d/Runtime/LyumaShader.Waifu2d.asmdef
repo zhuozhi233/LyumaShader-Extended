@@ -1,14 +1,11 @@
 {
-    "name": "LyumaShader.Waifu2d.Editor",
+    "name": "LyumaShader.Waifu2d",
     "rootNamespace": "",
     "references": [
-        "lilToon.Editor",
-        "LyumaShader.Waifu2d",
-        "nadena.dev.modular-avatar.core"
+        "nadena.dev.modular-avatar.core",
+        "nadena.dev.ndmf.runtime"
     ],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

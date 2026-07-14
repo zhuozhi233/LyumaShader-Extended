@@ -177,7 +177,7 @@ namespace LyumaShader
             material.SetFloat("_2d_coef", 0.99f);
             material.SetFloat("_facing_coef", 0.0f);
             material.SetFloat("_lock2daxis_coef", 1.0f);
-            material.SetFloat("_zcorrect_coef", 0.975f);
+            material.SetFloat("_zcorrect_coef", 0.8f);
         }
 
         private static Dictionary<string, string> BuildReverseMap()
@@ -227,7 +227,7 @@ namespace LyumaShader
             m_MaterialEditor.ShaderProperty(facingDirection, "Facing Direction / 朝向");
             m_MaterialEditor.ShaderProperty(lockAxis, "Lock 2D Axis / 锁定 2D 轴");
             m_MaterialEditor.ShaderProperty(squashZ, "Squash Z / Z 深度修正");
-            EditorGUILayout.HelpBox("Recommended Squash Z: 0.95 - 0.975", MessageType.Info);
+            EditorGUILayout.HelpBox("Recommended Squash Z / 推荐 Z 深度修正: 0.8", MessageType.Info);
             EditorGUILayout.EndVertical();
             EditorGUILayout.EndVertical();
         }
