@@ -1,0 +1,60 @@
+name: 构建 VPM Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  packageName: "com.zhuozhi.lyumashader-extended"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 获取源码
+        uses: actions/checkout@v4
+
+      - name: 读取版本号
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: 校验 package.json 版本
+        shell: bash
+        run: |
+          PACKAGE_VERSION="$(jq -r '.version' package.json)"
+          if [ "$PACKAGE_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "package.json 版本 $PACKAGE_VERSION 与标签版本 ${{ steps.version.outputs.version }} 不一致"
+            exit 1
+          fi
+
+      - name: 构建 VPM ZIP
+        shell: bash
+        run: |
+          mkdir -p release
+          zip -r "release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip" . \
+            -x ".git/*" ".github/*" ".gitignore" "release/*"
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.version.outputs.version }}"
+          name: "LyumaShader 扩展版 ${{ steps.version.outputs.version }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            首个 VPM/VCC 版本。
+
+            - 支持 lilToon、lilToon Custom Shader 与 Poiyomi
+            - 提供批量转换、参数修改、移除和动画生成功能
+            - ZIP 根目录包含 package.json，可直接通过 VCC 安装
+          files: |
+            release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
+            package.json

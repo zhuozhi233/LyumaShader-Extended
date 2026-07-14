@@ -389,22 +389,27 @@ namespace LyumaShader {
             }
 
             string [] shader2dassets = AssetDatabase.FindAssets ("Waifu2d.cginc");
-            string includePath = "LyumaShader/Waifu2d/Waifu2d.cginc";
+            string includeAssetPath = null;
             foreach (string guid in shader2dassets) {
-                Debug.Log ("testI: " + AssetDatabase.GUIDToAssetPath (guid));
-                includePath = AssetDatabase.GUIDToAssetPath (guid);
-                if (!includePath.Contains ("Waifu2d.cginc")) {
+                string candidatePath = AssetDatabase.GUIDToAssetPath (guid).Replace ('\\', '/');
+                Debug.Log ("testI: " + candidatePath);
+                if (!candidatePath.EndsWith ("/Waifu2d/Waifu2d.cginc", StringComparison.OrdinalIgnoreCase)) {
                     continue;
                 }
-                if (!includePath.StartsWith ("Assets/", StringComparison.CurrentCulture)) {
-                    EditorUtility.DisplayDialog ("Waifu2d", "This script at path " + includePath + " must be in Assets!", "OK", "");
-                    return null;
-                }
-                includePath = includePath.Substring (7);
+                includeAssetPath = candidatePath;
                 break;
             }
+            if (string.IsNullOrEmpty (includeAssetPath) ||
+                (!includeAssetPath.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase) &&
+                 !includeAssetPath.StartsWith ("Packages/", StringComparison.OrdinalIgnoreCase))) {
+                EditorUtility.DisplayDialog ("Waifu2d", "Could not locate Waifu2d.cginc in Assets or Packages.", "OK", "");
+                return null;
+            }
+            string includePath = includeAssetPath.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase)
+                ? includeAssetPath.Substring (7)
+                : includeAssetPath;
             Debug.Log("Including code from " + includePath);
-            string cgincCode = File.ReadAllText("Assets/" + includePath);
+            string cgincCode = File.ReadAllText(includeAssetPath);
             int numSlashes = 0;
             bool isAssetSource = path.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase);
             bool isPoiyomiPackageSource = path.Replace ('\\', '/').StartsWith (POIYOMI_PACKAGE_PREFIX, StringComparison.OrdinalIgnoreCase);
@@ -413,7 +418,7 @@ namespace LyumaShader {
                 return null;
             }
             string includePrefix = "";
-            if (isAssetSource) {
+            if (isAssetSource && includeAssetPath.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase)) {
                 Debug.Log("path is " + path);
                 foreach (char c in path.Substring (7)) {
                     if (c == '/') {

@@ -1,102 +1,69 @@
-# Lyuma's Shaders
+# LyumaShader 扩展版
 
-This is a collection of editor scripts and shaders for Unity or VRChat. Currently, the repository focuses on a 2d effect. More shaders and scripts will be coming.
+基于 [lyuma/LyumaShader](https://github.com/lyuma/LyumaShader) 的 Waifu2d 扩展版本，为 lilToon、lilToon Custom Shader 和 Poiyomi 增加兼容支持，并提供批量处理工具。
 
-To download, expand the Releases link, and download the unitypackage... Or, click the green Code button and Download ZIP. Then extract into your unity Assets folder.
+本项目不会修改 lilToon 或 Poiyomi 的源代码。转换时使用 LyumaShader 自己的 Shader，或在 `Assets/LyumaShader/Waifu2d/Generated` 中创建生成文件。
 
-# Waifu2d
+## 主要功能
 
-This feature, "Make 2d", will flatten any material onto a vertical plane, by modifying the shader.
+- 保留原版 LyumaShader 和 Waifu2d 功能。
+- 支持 lilToon 的普通、Lite、描边、折射、毛发、宝石、覆盖、假阴影和 Multi 等变体。
+- 自动识别使用 `.lilcontainer` 的 lilToon Custom Shader，例如 SuperLilToonCyber。
+- 支持 Poiyomi Shader。
+- 批量转换模型、Prefab、材质和当前多选对象。
+- 批量修改朝向、锁定轴和 Z 深度修正。
+- 一键移除 Waifu2d，并恢复转换前的 Shader。
+- 为已经转换的材质生成“关闭 2D”和“开启 2D”两个动画。
 
-![access Waifu2d from the Material context menu](Waifu2d/waifu2d_preview.png)\
-*Featured: Amanatsu by komado showing Silent's Crosstone, Xiexe's XSToon 3.0.1 and Poiyomi Toon v7.1.53*
+## 安装
 
-To access, select all the materials you wish to convert, then use the gear menu to select **Make 2d** - to switch materials back to 3d mode, select **Revert to 3d**. It works well when combined with an extremely thick outline with solid color.
+### 使用 VCC 安装
 
-## lilToon support (added in this project)
+将下面的仓库地址添加到 VCC：
 
-This copy of LyumaShader adds a lilToon custom-shader adapter without replacing the original Waifu2d generator. Poiyomi and other shaders still use LyumaShader's original shader-generation path.
+`https://zhuozhi233.github.io/vpm-listing/index.json`
 
-For an official lilToon material, right-click the material and choose **转换为 2D（Lyuma Waifu2d）**. The material is switched to a Lyuma-owned lilToon custom shader, so the normal lilToon inspector and rendering-mode controls remain available. The **Lyuma Waifu2d** foldout contains the four original controls: 2D Amount, Facing Direction, Lock 2D Axis, and Squash Z. Choose **恢复为 3D（Lyuma Waifu2d）** to restore the exact original lilToon shader variant.
+然后在项目的“管理项目”页面安装“LyumaShader 扩展版”。安装后包位于：
 
-The adapter covers the standard, Lite, outline, tessellation, refraction, fur, gem, overlay, fake-shadow, and Multi variants included with lilToon. Its shader assets live under `Waifu2d/lilToon`; no source file in the lilToon package is modified.
+`Packages/com.zhuozhi.lyumashader-extended`
 
-It also discovers lilToon Custom Shader families imported as `.lilcontainer` assets. On first conversion, LyumaShader copies that family's shader-source folder to `Assets/LyumaShader/Waifu2d/Generated/LilCustom`, composes the Waifu2d properties and vertex hook into the copy, and records a manifest used for variant changes and reverting. The original Custom Shader folder and its inspector code are never edited. This supports merged/custom families such as SuperLilToonCyber without adding their names to a fixed whitelist.
+### 手动安装
 
-### lilToon（含 Custom）与 Poiyomi 批量工具
+从 [Releases](https://github.com/zhuozhi233/LyumaShader-Extended/releases) 下载 VPM ZIP，并将内容解压到项目的 `Packages/com.zhuozhi.lyumashader-extended`。推荐优先使用 VCC，依赖处理会更完整。
 
-从 Unity 菜单打开 **Tools > LyumaShader > lilToon（含 Custom）+ Poiyomi 批量 2D 工具**。可以把场景模型、Prefab 或模型资源放入“模型根对象”，也可以在 Hierarchy/Project 中多选对象后一键转换。普通参数可以批量修改；尚未处理的 lilToon、lilToon Custom 或 Poiyomi 材质会自动转换，已经转换的材质会保留未勾选的参数。Material Variant 会自动转换其实际持有 Shader 的基础材质，再把参数写入模型使用的变体。
+## 使用方法
 
-“移除 Waifu2d”按钮会把 lilToon、lilToon Custom 与 Poiyomi 材质恢复到转换前记录的原始 Shader。它不会删除可能仍被其他材质使用的生成 Shader 文件。
+打开 Unity 菜单：
 
-窗口还可以按模型根对象生成两个 AnimationClip，分别把所有相关 Renderer 的 `_2d_coef` 设为 `0` 和 `0.99`。动画只绑定已经转换为 Lyuma Waifu2d 的材质；未转换材质会被跳过，并且不会在生成动画时自动转换。未指定输出文件夹时，动画保存在 `Assets/LyumaShader/GeneratedAnimations`。
+`Tools > LyumaShader > lilToon（含 Custom）+ Poiyomi 批量 2D 工具`
 
-## How to configure and animate 2d effects
+在窗口中扫描模型材质或读取当前多选，然后执行转换、批量参数修改、移除或动画生成。
 
-The material inspector is disabled once you are in 2d mode. While in this mode, you can configure the plane to face one direction (Locked to a 2d axis determined by Facing direction), or billboarded to the player's camera for a sprite game feel. Feel free to revert to 3d to make more material changes, or edit the sliders directly.
+也可以右键材质：
 
-You can animate the _2d_coef and _lock_2d_axis material values for switching between 2d, billboard, and 3d modes. You must do this on every mesh to avoid clipping. You may want to also animate the outline width to be smaller when in 3d.
+- `转换为 2D（Lyuma Waifu2d）`
+- `恢复为 3D（Lyuma Waifu2d）`
 
-Note that this shader cheats and produces falsified depth values to minimize Z-fighting. However, if you wish to mix parts in 2d and 3d, you can adjust the "Squash Z" value to some value usually around 0.95 or 0.975 so that they line up.
+生成动画时，只处理已经转换的材质。未转换材质不会自动转换，也不会生成对应曲线。
 
-## Other notes about 2d
+## 使用说明
 
-This shader requires that *all* meshes have the same **Root Bone** slot set in the SkinnedMeshRenderer. Changing the Root Bone is mostly safe, but you must adjust the Mesh Bounds to compensate. If you have any meshes which are not skinned, they will not align to the same 2d plane and may look unusual. This is best fixed from within blender by combining meshes.
+- 首次转换 lilToon Custom Shader 时，需要等待 Unity 生成和导入对应变体。
+- 生成文件不会写入第三方插件目录，也不会修改 `Packages/jp.lilxyzw.liltoon`。
+- 所有需要对齐的网格最好使用相同的 SkinnedMeshRenderer Root Bone。
+- 混合显示 2D 和 3D 部件时，可将 Z 深度修正调整到 `0.95` 至 `0.975`。
+- lilToon 是必要依赖；Poiyomi 为可选依赖。
 
-"See self in 3d" has been removed. If you need this functionality use the Avatar 3.0 IsLocal parameter.
+## 兼容环境
 
-Note that this includes a copy of the built-in Standard shader for metallic setup only. Specular setup is not implemented yet, but would be easy to add if requested.
+- Unity `2022.3`
+- lilToon `2.3.4` 或更高版本
+- 已测试 Poiyomi `9.3.64`
 
-# LyumaMeshTools (LMT)
+## 致谢与许可证
 
-The LyumaMeshTools editor script is located in LyumaShader/Editor. It contains a set of features in the gear or right click menu of Mesh Renderer and similar components. If you want to customize these, pick the closest one and edit the source code.
+- 原项目：[lyuma/LyumaShader](https://github.com/lyuma/LyumaShader)
+- lilToon：[lilxyzw/lilToon](https://github.com/lilxyzw/lilToon)
+- Poiyomi：[poiyomi/PoiyomiToonShader](https://github.com/poiyomi/PoiyomiToonShader)
 
-- "**Vertex position to UV2 : LMT**" : records original vertex position for use with shading effects that deform properly with skinned meshes (similar to using Project From View in blender, but with all 3 axes)
-
-- "**Merge UV with UV2 : LMT**" puts UV2.xy as the .zw components of UV. Can be used similarly as vertex colors. This frees up the second UV for baked lightmaps.
-
-- "**Assetize Meshes : LMT**" properly duplicates the mesh out of an FBX file.
-
-- "**Add Shadow : LMT**" adds another material sharing vertices but with a face for every face in existing materials. Can be used for a stencil or with my shadow shader to make a shadow around your mesh.
-
-- "**Combine Same Material : LMT**" is an optimization tool to combine all copies of the same material into one. You can control this process by manually putting the same material into different slots before running this script.
-
-- "**Remove Null Mats : LMT**" removes any material in a mesh and the corresponding polygons for any unassigned (pink) material slots. NOTE: Does not remove unused vertices.
-
-- "**Combine Mesh Siblings : LMT**" Is an optimization tool to combine all skinned mesh renderers with the same parent into one skinned mesh renderer with multiple materials. It can also be useful to guarantee meshes are rendered in order.\
-\
-"Combine Mesh Siblings" now also merges blendshapes from sibling meshes. This way, you can pick any mesh to be the main Body mesh and not worry about losing blendshapes.
-
-- "**Make Skinned Parent+Child : LMT**" Builds skinned meshes out of non-skinned: See this tutorial:\
-![LyumaMeshTools tutorial](https://user-images.githubusercontent.com/39946030/122019045-41e18380-cd78-11eb-8fa0-28ec72adbbe9.mp4)
-
-- "**Keyframe Blend Shapes : LMT**" is a unique feature that edits a mesh with blendshapes named with a percent at the end like Blink_25% Blink_50% and merges them into a single blendshape at those percents. This tool can create instant blend shapes as well as any sort of custom mesh animation from a single gesture (or activation of multiple props from variable fist pressure). There is no way to my knowledge to import such blend shapes.\
-\
-Most of these things could be done in blender. Add Shadow is one of the more interesting tools: it is very efficient compared to duplicating vertices, duplicating meshes or even adding passes into multiple different shaders, and it allows you to make effectively a shader pass on a different queue. It's not trivial to do this in blender.\
-\
-Blend shape keyframing is probably by far the most interesting. The way to use it is you must import blendshapes named like this with _ or space and a percent.\
-\
-The following will generate a single blendshape called coolface that hits those keyframes on the way from 0 to 100. If you weight paint a prop to your main avatar mesh, this can allow for animations upon activating the prop from a gesture, without needing a whole animator setup
-> - coolface 10%
-> - coolface 30%
-> - coolface_50%
-> - coolface_100%
-
-You may need to run multiple tools depending on how your mesh is laid out, but Combine Mesh Siblings will get you most of the way. Make sure to disable the other meshes or delete them afterwards (will require Unpack Prefab). Also, Combine Same Material will help once you have merged meshes.
-
-
-# Other Contents
-
-* LyumaShader/DropShadowLite.shader: This renders a flat drop shadow behind the object. Usually used by making a duplicate of your material or mesh and applying this shader to the duplicate. It contains its own offset, so it is ok to apply to a SkinnedMeshRenderer of an existing armature.
-
-# Conclusion
-
-That's it for now. In the future, I may include screenshots, samples, etc.
-
-I also have a collection of GPU skinning examples in the `newshaderskin` branch.
-
-Also, check out my gists: https://gist.github.com/lyuma
-
-# Contact
-
-Feel free to contact me by opening an issue, Lyuma on Discord (#0781), or by email at xnlyuma@gmail.com
+项目延续原版 LyumaShader 的 MIT 许可证。lilToon 相关文件的许可证说明位于 `Waifu2d/lilToon/LICENSE.lilToon.txt`。

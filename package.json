@@ -1,0 +1,23 @@
+{
+  "name": "com.zhuozhi.lyumashader-extended",
+  "version": "1.0.0",
+  "displayName": "LyumaShader 扩展版",
+  "description": "为 LyumaShader Waifu2d 增加 lilToon、lilToon Custom Shader、Poiyomi 与批量处理支持。",
+  "unity": "2022.3",
+  "author": {
+    "name": "浊鸷",
+    "url": "https://github.com/zhuozhi233/LyumaShader-Extended"
+  },
+  "license": "MIT",
+  "vpmDependencies": {
+    "jp.lilxyzw.liltoon": ">=2.3.4"
+  },
+  "keywords": [
+    "vrchat",
+    "unity",
+    "waifu2d",
+    "liltoon",
+    "poiyomi",
+    "shader"
+  ]
+}

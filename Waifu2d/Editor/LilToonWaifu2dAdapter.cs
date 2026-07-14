@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 
@@ -13,7 +14,9 @@ namespace LyumaShader
     internal static class LilToonWaifu2dAdapter
     {
         internal const string ShaderPrefix = "LyumaShader/Waifu2d/lilToon";
-        private const string ShaderAssetFolder = "Assets/LyumaShader/Waifu2d/lilToon/Shaders";
+        private const string AssetsShaderFolder = "Assets/LyumaShader/Waifu2d/lilToon/Shaders";
+        private const string PackageShaderFolder = "Packages/com.zhuozhi.lyumashader-extended/Waifu2d/lilToon/Shaders";
+        private static string cachedShaderAssetFolder;
 
         private static readonly Dictionary<string, string> OriginalToWaifu2d =
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -103,10 +106,14 @@ namespace LyumaShader
             Shader target = Shader.Find(targetName);
             if(target != null) return target;
 
-            AssetDatabase.ImportAsset(
-                ShaderAssetFolder,
-                ImportAssetOptions.ImportRecursive | ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate
-            );
+            string shaderAssetFolder = GetShaderAssetFolder();
+            if(!string.IsNullOrEmpty(shaderAssetFolder))
+            {
+                AssetDatabase.ImportAsset(
+                    shaderAssetFolder,
+                    ImportAssetOptions.ImportRecursive | ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate
+                );
+            }
             target = Shader.Find(targetName);
             if(target == null)
             {
@@ -118,6 +125,41 @@ namespace LyumaShader
                 );
             }
             return target;
+        }
+
+        internal static string GetShaderAssetFolder()
+        {
+            if(!string.IsNullOrEmpty(cachedShaderAssetFolder) && AssetDatabase.IsValidFolder(cachedShaderAssetFolder))
+            {
+                return cachedShaderAssetFolder;
+            }
+
+            if(AssetDatabase.IsValidFolder(AssetsShaderFolder))
+            {
+                cachedShaderAssetFolder = AssetsShaderFolder;
+                return cachedShaderAssetFolder;
+            }
+            if(AssetDatabase.IsValidFolder(PackageShaderFolder))
+            {
+                cachedShaderAssetFolder = PackageShaderFolder;
+                return cachedShaderAssetFolder;
+            }
+
+            foreach(string guid in AssetDatabase.FindAssets("lilCustomShaderDatas"))
+            {
+                string dataPath = AssetDatabase.GUIDToAssetPath(guid).Replace('\\', '/');
+                if(!dataPath.EndsWith("/Waifu2d/lilToon/Shaders/lilCustomShaderDatas.lilblock", StringComparison.OrdinalIgnoreCase) ||
+                    !File.Exists(dataPath))
+                {
+                    continue;
+                }
+
+                string content = File.ReadAllText(dataPath);
+                if(content.IndexOf("ShaderName \"" + ShaderPrefix + "\"", StringComparison.Ordinal) < 0) continue;
+                cachedShaderAssetFolder = dataPath.Substring(0, dataPath.LastIndexOf('/'));
+                return cachedShaderAssetFolder;
+            }
+            return null;
         }
 
         internal static Shader GetOriginalShader(Shader source)
