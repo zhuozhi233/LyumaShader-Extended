@@ -52,12 +52,12 @@
 - 生成文件不会写入第三方插件目录，也不会修改 `Packages/jp.lilxyzw.liltoon`。
 - 所有需要对齐的网格最好使用相同的 SkinnedMeshRenderer Root Bone。
 - 混合显示 2D 和 3D 部件时，可将 Z 深度修正调整到 `0.95` 至 `0.975`。
-- lilToon 是必要依赖；Poiyomi 为可选依赖。
+- 使用 lilToon 适配前请自行安装 lilToon；VPM 包不强制最低版本。Poiyomi 为可选依赖。
 
 ## 兼容环境
 
 - Unity `2022.3`
-- lilToon `2.3.4` 或更高版本
+- lilToon：不设置 VPM 最低版本限制；旧版本能否正常运行取决于其接口兼容性
 - 已测试 Poiyomi `9.3.64`
 
 ## 致谢与许可证

@@ -50,9 +50,10 @@ jobs:
           prerelease: false
           generate_release_notes: true
           body: |
-            首个 VPM/VCC 版本。
+            VPM/VCC 软件包。
 
             - 支持 lilToon、lilToon Custom Shader 与 Poiyomi
+            - 不通过 VPM 强制限定 lilToon 最低版本
             - 提供批量转换、参数修改、移除和动画生成功能
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |

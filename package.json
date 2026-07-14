@@ -9,9 +9,6 @@
     "url": "https://github.com/zhuozhi233/LyumaShader-Extended"
   },
   "license": "MIT",
-  "vpmDependencies": {
-    "jp.lilxyzw.liltoon": ">=2.3.4"
-  },
   "keywords": [
     "vrchat",
     "unity",
