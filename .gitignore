@@ -1,0 +1,13 @@
+# Unity-generated metadata and project caches
+*.meta
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+UserSettings/
+
+# LyumaShader outputs created by the editor tools
+GeneratedAnimations/
+Waifu2d/Generated/

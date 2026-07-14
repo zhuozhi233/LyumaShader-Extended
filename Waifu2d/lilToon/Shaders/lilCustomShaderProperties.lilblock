@@ -1,0 +1,7 @@
+
+        //----------------------------------------------------------------------------------------------------------------------
+        // Lyuma Waifu2d
+        _2d_coef          ("2D Amount", Range(0, 1)) = 0.99
+        _facing_coef      ("Facing Direction", Range(-1, 1)) = 0.0
+        _lock2daxis_coef  ("Lock 2D Axis", Range(0, 1)) = 1.0
+        _zcorrect_coef    ("Squash Z (0.975 recommended)", Float) = 0.975

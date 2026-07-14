@@ -13,6 +13,24 @@ This feature, "Make 2d", will flatten any material onto a vertical plane, by mod
 
 To access, select all the materials you wish to convert, then use the gear menu to select **Make 2d** - to switch materials back to 3d mode, select **Revert to 3d**. It works well when combined with an extremely thick outline with solid color.
 
+## lilToon support (added in this project)
+
+This copy of LyumaShader adds a lilToon custom-shader adapter without replacing the original Waifu2d generator. Poiyomi and other shaders still use LyumaShader's original shader-generation path.
+
+For an official lilToon material, right-click the material and choose **转换为 2D（Lyuma Waifu2d）**. The material is switched to a Lyuma-owned lilToon custom shader, so the normal lilToon inspector and rendering-mode controls remain available. The **Lyuma Waifu2d** foldout contains the four original controls: 2D Amount, Facing Direction, Lock 2D Axis, and Squash Z. Choose **恢复为 3D（Lyuma Waifu2d）** to restore the exact original lilToon shader variant.
+
+The adapter covers the standard, Lite, outline, tessellation, refraction, fur, gem, overlay, fake-shadow, and Multi variants included with lilToon. Its shader assets live under `Waifu2d/lilToon`; no source file in the lilToon package is modified.
+
+It also discovers lilToon Custom Shader families imported as `.lilcontainer` assets. On first conversion, LyumaShader copies that family's shader-source folder to `Assets/LyumaShader/Waifu2d/Generated/LilCustom`, composes the Waifu2d properties and vertex hook into the copy, and records a manifest used for variant changes and reverting. The original Custom Shader folder and its inspector code are never edited. This supports merged/custom families such as SuperLilToonCyber without adding their names to a fixed whitelist.
+
+### lilToon（含 Custom）与 Poiyomi 批量工具
+
+从 Unity 菜单打开 **Tools > LyumaShader > lilToon（含 Custom）+ Poiyomi 批量 2D 工具**。可以把场景模型、Prefab 或模型资源放入“模型根对象”，也可以在 Hierarchy/Project 中多选对象后一键转换。普通参数可以批量修改；尚未处理的 lilToon、lilToon Custom 或 Poiyomi 材质会自动转换，已经转换的材质会保留未勾选的参数。Material Variant 会自动转换其实际持有 Shader 的基础材质，再把参数写入模型使用的变体。
+
+“移除 Waifu2d”按钮会把 lilToon、lilToon Custom 与 Poiyomi 材质恢复到转换前记录的原始 Shader。它不会删除可能仍被其他材质使用的生成 Shader 文件。
+
+窗口还可以按模型根对象生成两个 AnimationClip，分别把所有相关 Renderer 的 `_2d_coef` 设为 `0` 和 `0.99`。动画只绑定已经转换为 Lyuma Waifu2d 的材质；未转换材质会被跳过，并且不会在生成动画时自动转换。未指定输出文件夹时，动画保存在 `Assets/LyumaShader/GeneratedAnimations`。
+
 ## How to configure and animate 2d effects
 
 The material inspector is disabled once you are in 2d mode. While in this mode, you can configure the plane to face one direction (Locked to a 2d axis determined by Facing direction), or billboarded to the player's camera for a sprite game feel. Feel free to revert to 3d to make more material changes, or edit the sliders directly.

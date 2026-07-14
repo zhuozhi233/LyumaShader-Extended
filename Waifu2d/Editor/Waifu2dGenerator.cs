@@ -7,17 +7,44 @@ namespace LyumaShader {
     public class Waifu2dGenerator : ScriptableObject {
         // Use a #include instead of pasting in code.
         const bool USE_INCLUDE = false;
+        const string GENERATED_POIYOMI_FOLDER = "Assets/LyumaShader/Waifu2d/Generated/Poiyomi";
+        const string POIYOMI_PACKAGE_PREFIX = "Packages/com.poiyomi.toon/";
 
         //[MenuItem ("Tools/Lyuma Waifu2d")]
         //MenuItem("GameObject/Create Mesh")
-        [MenuItem ("CONTEXT/Material/Make 2d (Lyuma Waifu2d)")]
+        [MenuItem ("CONTEXT/Material/转换为 2D（Lyuma Waifu2d）")]
         static void Waifu2dMaterial (MenuCommand command)
         {
             Material m = command.context as Material;
-            Shader newShader = Waifu2d (m.shader, false);
+            if (m == null || m.shader == null) {
+                return;
+            }
+
+            bool isLilToon = LilToonWaifu2dAdapter.IsSupported (m.shader);
+            bool isLilCustom = !isLilToon && GenericLilCustomWaifu2dAdapter.IsSupported (m.shader);
+            bool isPoiyomi = PoiyomiWaifu2dAdapter.IsSupported (m.shader);
+            Shader newShader = isLilToon
+                ? LilToonWaifu2dAdapter.GetWaifu2dShader (m.shader)
+                : isLilCustom
+                    ? GenericLilCustomWaifu2dAdapter.GetWaifu2dShader (m.shader)
+                    : isPoiyomi
+                        ? PoiyomiWaifu2dAdapter.GetWaifu2dShader (m.shader)
+                        : Waifu2d (m.shader, false);
             if (newShader != null) {
+                if (m.shader == newShader) {
+                    return;
+                }
+
+                int renderQueue = m.renderQueue;
                 Undo.RecordObject(m, "Waifu2d: Switch Shader to 2d");
                 m.shader = newShader;
+                if (isLilToon || isLilCustom || isPoiyomi) {
+                    if (isLilToon) LilToonWaifu2dAdapter.InitializeMaterial (m);
+                    else if (isLilCustom) GenericLilCustomWaifu2dAdapter.InitializeMaterial (m);
+                    else PoiyomiWaifu2dAdapter.InitializeMaterial (m);
+                    m.renderQueue = renderQueue;
+                    EditorUtility.SetDirty (m);
+                }
             }
         }
 
@@ -25,14 +52,63 @@ namespace LyumaShader {
         static void Waifu2dShader (MenuCommand command)
         {
             Shader s = command.context as Shader;
-            Shader newS = Waifu2d (s, false);
-            EditorGUIUtility.PingObject (newS);
+            if (s == null) {
+                return;
+            }
+
+            Shader newS = LilToonWaifu2dAdapter.IsSupported (s)
+                ? LilToonWaifu2dAdapter.GetWaifu2dShader (s)
+                : GenericLilCustomWaifu2dAdapter.IsSupported (s)
+                    ? GenericLilCustomWaifu2dAdapter.GetWaifu2dShader (s)
+                    : PoiyomiWaifu2dAdapter.IsSupported (s)
+                        ? PoiyomiWaifu2dAdapter.GetWaifu2dShader (s)
+                        : Waifu2d (s, false);
+            if (newS != null) {
+                EditorGUIUtility.PingObject (newS);
+            }
         }
 
-        [MenuItem ("CONTEXT/Material/Revert to 3d (Lyuma Waifu2d)")]
+        [MenuItem ("CONTEXT/Material/恢复为 3D（Lyuma Waifu2d）")]
         static void WaifuRevert2dMaterial (MenuCommand command)
         {
             Material m = command.context as Material;
+            if (m == null || m.shader == null) {
+                return;
+            }
+
+            Shader lilToonOriginal = LilToonWaifu2dAdapter.GetOriginalShader (m.shader);
+            if (lilToonOriginal != null) {
+                int renderQueue = m.renderQueue;
+                Undo.RecordObject (m, "Waifu2d: Revert lilToon Shader to 3d");
+                m.shader = lilToonOriginal;
+                m.renderQueue = renderQueue;
+                EditorUtility.SetDirty (m);
+                Debug.Log ("Reverted Lyuma Waifu2d lilToon shader to " + lilToonOriginal.name, lilToonOriginal);
+                return;
+            }
+
+            Shader lilCustomOriginal = GenericLilCustomWaifu2dAdapter.GetOriginalShader (m.shader);
+            if (lilCustomOriginal != null) {
+                int renderQueue = m.renderQueue;
+                Undo.RecordObject (m, "Waifu2d: Revert lilToon Custom Shader to 3d");
+                m.shader = lilCustomOriginal;
+                m.renderQueue = renderQueue;
+                EditorUtility.SetDirty (m);
+                Debug.Log ("Reverted Lyuma Waifu2d lilToon Custom shader to " + lilCustomOriginal.name, lilCustomOriginal);
+                return;
+            }
+
+            Shader poiyomiOriginal = PoiyomiWaifu2dAdapter.GetOriginalShader (m.shader);
+            if (poiyomiOriginal != null) {
+                int renderQueue = m.renderQueue;
+                Undo.RecordObject (m, "Waifu2d: Revert Poiyomi Shader to 3d");
+                m.shader = poiyomiOriginal;
+                m.renderQueue = renderQueue;
+                EditorUtility.SetDirty (m);
+                Debug.Log ("Reverted Lyuma Waifu2d Poiyomi shader to " + poiyomiOriginal.name, poiyomiOriginal);
+                return;
+            }
+
             string path = AssetDatabase.GetAssetPath (m.shader);
             if (path.StartsWith ("Resources/unity_builtin_extra", StringComparison.CurrentCulture)) {
                 return;
@@ -66,7 +142,7 @@ namespace LyumaShader {
             }
         }
 
-        static Shader Waifu2d (Shader s, bool vr2d)
+        internal static Shader Waifu2d (Shader s, bool vr2d)
         {
             string shaderName = s.name;
             string path = AssetDatabase.GetAssetPath (s);
@@ -81,10 +157,19 @@ namespace LyumaShader {
                     }
                 }
             }
-            return Waifu2dPath (path, shaderName, vr2d, vr2d ? "_vr2d" : "_2d");
+            string shaderSuffix = vr2d ? "_vr2d" : "_2d";
+            string destinationPath = null;
+            if (path.Replace ('\\', '/').StartsWith (POIYOMI_PACKAGE_PREFIX, StringComparison.OrdinalIgnoreCase)) {
+                string guid = AssetDatabase.AssetPathToGUID (path);
+                string guidSuffix = string.IsNullOrEmpty (guid) ? "package" : guid.Substring (0, Math.Min (8, guid.Length));
+                string safeName = MakeSafeFileName (Path.GetFileNameWithoutExtension (path));
+                Directory.CreateDirectory (GENERATED_POIYOMI_FOLDER);
+                destinationPath = GENERATED_POIYOMI_FOLDER + "/" + safeName + "_" + guidSuffix + shaderSuffix + ".shader";
+            }
+            return Waifu2dPath (path, shaderName, vr2d, shaderSuffix, destinationPath);
         }
 
-        static Shader Waifu2dPath(string path, string shaderName, bool vr2d, string shaderSuffix) {
+        static Shader Waifu2dPath(string path, string shaderName, bool vr2d, string shaderSuffix, string destinationPath = null) {
             string [] shaderData = File.ReadAllLines (path);
             int state = 0;
             int comment = 0;
@@ -112,7 +197,8 @@ namespace LyumaShader {
                             EditorUtility.DisplayDialog ("Waifu2d", "Unable to find name of original shader for " + shaderName, "OK", "");
                             return null;
                         }
-                        return Waifu2dPath (origPath, origShaderName, vr2d, shaderSuffix);
+                        Shader originalShader = AssetDatabase.LoadAssetAtPath<Shader> (origPath);
+                        return originalShader == null ? null : Waifu2d (originalShader, vr2d);
                     } else {
                         return null;
                     }
@@ -320,16 +406,20 @@ namespace LyumaShader {
             Debug.Log("Including code from " + includePath);
             string cgincCode = File.ReadAllText("Assets/" + includePath);
             int numSlashes = 0;
-            if (!path.StartsWith ("Assets/", StringComparison.CurrentCulture)) {
+            bool isAssetSource = path.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase);
+            bool isPoiyomiPackageSource = path.Replace ('\\', '/').StartsWith (POIYOMI_PACKAGE_PREFIX, StringComparison.OrdinalIgnoreCase);
+            if (!isAssetSource && !isPoiyomiPackageSource) {
                 EditorUtility.DisplayDialog ("Waifu2d", "Shader " + shaderName + " at path " + path + " must be in Assets!", "OK", "");
                 return null;
             }
             string includePrefix = "";
-            Debug.Log("path is " + path);
-            foreach (char c in path.Substring (7)) {
-                if (c == '/') {
-                    numSlashes++;
-                    includePrefix += "../";
+            if (isAssetSource) {
+                Debug.Log("path is " + path);
+                foreach (char c in path.Substring (7)) {
+                    if (c == '/') {
+                        numSlashes++;
+                        includePrefix += "../";
+                    }
                 }
             }
             includePath = includePrefix + includePath;
@@ -374,9 +464,13 @@ namespace LyumaShader {
             shaderLine = shaderLine.Substring (0, editShaderNameSkip) + shaderSuffix + shaderLine.Substring (editShaderNameSkip);
             shaderData [editShaderNameLineNum] = shaderLine;
 
-            String dest = path.Replace (".shader", shaderSuffix + ".txt");
-            String finalDest = path.Replace (".shader", shaderSuffix + ".shader");
-            if (dest.Equals (path)) {
+            String finalDest = string.IsNullOrEmpty (destinationPath)
+                ? path.Replace (".shader", shaderSuffix + ".shader")
+                : destinationPath;
+            String dest = finalDest.EndsWith (".shader", StringComparison.OrdinalIgnoreCase)
+                ? finalDest.Substring (0, finalDest.Length - ".shader".Length) + ".txt"
+                : finalDest + ".txt";
+            if (finalDest.Equals (path) || !finalDest.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase)) {
                 EditorUtility.DisplayDialog ("Waifu2d", "Shader " + shaderName + " at path " + path + " does not have .shader!", "OK", "");
                 return null;
             }
@@ -391,6 +485,9 @@ namespace LyumaShader {
             writer.WriteLine ("// WARNING: this shader uses relative includes. Unity might not recompile if Waifu2d.cginc changes.");
             writer.WriteLine ("// If editing Waifu2d.cginc, force a recompile by adding a space in here or regenerating.");
             for (int i = 0; i < shaderData.Length; i++) {
+                if (isPoiyomiPackageSource) {
+                    shaderData [i] = RewriteRelativeInclude (shaderData [i], path);
+                }
                 if (shaderData [i].IndexOf ("CustomEditor", StringComparison.CurrentCulture) != -1) {
                     writer.WriteLine ("//" + shaderData [i]);
                 } else {
@@ -406,6 +503,52 @@ namespace LyumaShader {
             //FileUtil.MoveFileOrDirectory (dest, finalDest);
             AssetDatabase.ImportAsset (finalDest);
             return (Shader)AssetDatabase.LoadAssetAtPath (finalDest, typeof (Shader));
+        }
+
+        static string RewriteRelativeInclude (string line, string sourcePath) {
+            string trimmed = line.TrimStart ();
+            if (!trimmed.StartsWith ("#include", StringComparison.Ordinal)) {
+                return line;
+            }
+
+            int firstQuote = line.IndexOf ('"');
+            int secondQuote = firstQuote < 0 ? -1 : line.IndexOf ('"', firstQuote + 1);
+            if (firstQuote < 0 || secondQuote < 0) {
+                return line;
+            }
+
+            string includePath = line.Substring (firstQuote + 1, secondQuote - firstQuote - 1);
+            if (!includePath.StartsWith (".", StringComparison.Ordinal)) {
+                return line;
+            }
+
+            string sourceDirectory = Path.GetDirectoryName (sourcePath).Replace ('\\', '/');
+            string absoluteInclude = NormalizeAssetPath (sourceDirectory + "/" + includePath);
+            return line.Substring (0, firstQuote + 1) + absoluteInclude + line.Substring (secondQuote);
+        }
+
+        static string NormalizeAssetPath (string path) {
+            string [] parts = path.Replace ('\\', '/').Split ('/');
+            var normalized = new System.Collections.Generic.List<string> ();
+            foreach (string part in parts) {
+                if (string.IsNullOrEmpty (part) || part == ".") {
+                    continue;
+                }
+                if (part == "..") {
+                    if (normalized.Count > 0) normalized.RemoveAt (normalized.Count - 1);
+                    continue;
+                }
+                normalized.Add (part);
+            }
+            return string.Join ("/", normalized.ToArray ());
+        }
+
+        static string MakeSafeFileName (string fileName) {
+            if (string.IsNullOrEmpty (fileName)) return "Poiyomi";
+            foreach (char invalidCharacter in Path.GetInvalidFileNameChars ()) {
+                fileName = fileName.Replace (invalidCharacter, '_');
+            }
+            return fileName;
         }
     }
 }
