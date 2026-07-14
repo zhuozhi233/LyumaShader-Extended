@@ -18,6 +18,8 @@
 
 ## 1.1.0 更新
 
+- 取消 Modular Avatar 的最低版本限制，测试环境版本只用于兼容性参考。
+- lilToon、Poiyomi 同样不按 README 中的测试版本限制安装。
 - 新增 Root Bone 修复与可逆还原，解决衣服、头发使用不同根骨骼时的二维位置问题。
 - 修复旧工程中 `Waifu2d.cginc` 路径查找失败的问题。
 - 改善 lilToon FakeShadow、MultiOutline 和 `_OutlineZBias` 的兼容性。
@@ -60,15 +62,15 @@
 - 首次转换 lilToon Custom Shader 时，需要等待 Unity 生成和导入对应变体。
 - 生成文件不会写入第三方插件目录，也不会修改 `Packages/jp.lilxyzw.liltoon`。
 - 推荐 Z 深度修正值为 `0.8`；仍可根据模型的网格层次自行调整。
-- Root Bone 修复需要 Modular Avatar，VCC 安装时会自动处理该依赖。
+- Root Bone 修复需要 Modular Avatar，VCC 安装时会自动处理该依赖，但不限制最低版本。
 - 使用 lilToon 适配前请自行安装 lilToon；本包不通过 VPM 强制限定 lilToon 最低版本。Poiyomi 为可选依赖。
 
 ## 兼容环境
 
-- Unity `2022.3`
-- Modular Avatar `1.12.0` 或更高版本
+- Unity：以 `2022.3` 测试
+- Modular Avatar：以 `1.12.0` 测试，不强制最低版本
 - lilToon：以 `2.3.4` 测试，不强制最低版本
-- Poiyomi `9.3.64`
+- Poiyomi：以 `9.3.64` 测试，不强制最低版本
 
 旧版本能否正常运行取决于其接口兼容性
 
