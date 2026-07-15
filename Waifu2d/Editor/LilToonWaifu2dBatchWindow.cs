@@ -211,27 +211,30 @@ namespace LyumaShader
                 MessageType.Info
             );
 
-            EditorGUILayout.BeginHorizontal();
-            if(GUILayout.Button("修复 Root Bone", GUILayout.Height(28.0f)))
+            bool hasRootBoneRepair = modelRoot != null &&
+                modelRoot.GetComponent<LyumaWaifu2dMeshSettingsRestoreState>() != null;
+            string rootBoneButton = hasRootBoneRepair ? "还原 Root Bone 修复" : "修复 Root Bone";
+            if(GUILayout.Button(rootBoneButton, GUILayout.Height(28.0f)))
             {
-                RunRootBoneRepair(false);
+                RunRootBoneRepair(hasRootBoneRepair);
             }
-            if(GUILayout.Button("还原 Root Bone 修复", GUILayout.Height(28.0f)))
-            {
-                RunRootBoneRepair(true);
-            }
-            EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(8.0f);
             EditorGUILayout.LabelField("普通 MeshRenderer 修复", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "只处理模型中使用 Waifu2d 材质的 MeshRenderer + MeshFilter。构建期方式仅在 NDMF/MA 的构建副本中转换；直接方式会立即改为单骨骼 SkinnedMeshRenderer，并可通过 Undo 撤销。",
+                "只处理模型中使用 Waifu2d 材质的 MeshRenderer + MeshFilter。构建期方式仅在 NDMF/MA 的构建副本中转换。直接转换会立即改为单骨骼 SkinnedMeshRenderer，工具无法还原，只能立即使用 Unity Undo 或自行恢复原组件。",
                 MessageType.Info
             );
             EditorGUILayout.BeginHorizontal();
-            if(GUILayout.Button("添加 NDMF 构建期转换", GUILayout.Height(28.0f)))
+            bool hasBuildConverter = modelRoot != null &&
+                modelRoot.GetComponent<LyumaWaifu2dStaticMeshConverter>() != null;
+            string buildConverterButton = hasBuildConverter
+                ? "移除 NDMF 构建期转换"
+                : "添加 NDMF 构建期转换";
+            if(GUILayout.Button(buildConverterButton, GUILayout.Height(28.0f)))
             {
-                AddStaticMeshBuildConverter();
+                if(hasBuildConverter) RemoveStaticMeshBuildConverter();
+                else AddStaticMeshBuildConverter();
             }
             if(GUILayout.Button("直接转换为单骨骼", GUILayout.Height(28.0f)))
             {
@@ -257,6 +260,24 @@ namespace LyumaShader
             if(marker == null) marker = Undo.AddComponent<LyumaWaifu2dStaticMeshConverter>(modelRoot);
             EditorUtility.SetDirty(modelRoot);
             SetStatus(string.Format("已添加 NDMF 构建期转换，构建时将临时转换 {0} 个普通网格。", count), MessageType.Info);
+        }
+
+        private void RemoveStaticMeshBuildConverter()
+        {
+            if(modelRoot == null)
+            {
+                SetStatus("请先指定模型根对象。", MessageType.Warning);
+                return;
+            }
+            LyumaWaifu2dStaticMeshConverter marker = modelRoot.GetComponent<LyumaWaifu2dStaticMeshConverter>();
+            if(marker == null)
+            {
+                SetStatus("模型根对象上没有 NDMF 构建期转换。", MessageType.Info);
+                return;
+            }
+            Undo.DestroyObjectImmediate(marker);
+            EditorUtility.SetDirty(modelRoot);
+            SetStatus("已移除 NDMF 构建期转换。", MessageType.Info);
         }
 
         private void ConvertStaticMeshesDirectly()
