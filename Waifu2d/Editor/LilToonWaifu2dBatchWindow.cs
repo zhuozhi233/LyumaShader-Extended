@@ -36,6 +36,7 @@ namespace LyumaShader
         [SerializeField] private float squashZ = 0.8f;
         [SerializeField] private int settingsVersion;
 
+        [SerializeField] private bool showAdvancedSettings;
         [SerializeField] private bool showTargetMaterials;
         private Vector2 scrollPosition;
         private string statusMessage = "请拖入模型，或在层级/项目窗口中多选对象后读取。";
@@ -62,21 +63,29 @@ namespace LyumaShader
         private void OnGUI()
         {
             scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
-            DrawTargetSection();
+            DrawQuickActionsSection();
             EditorGUILayout.Space(8.0f);
-            DrawConversionSection();
-            EditorGUILayout.Space(8.0f);
-            DrawGeneralParametersSection();
-            EditorGUILayout.Space(8.0f);
-            DrawAnimationSection();
+            showAdvancedSettings = EditorGUILayout.Foldout(showAdvancedSettings, "详细设置", true);
+            if(showAdvancedSettings)
+            {
+                EditorGUI.indentLevel++;
+                DrawTargetSection();
+                EditorGUILayout.Space(8.0f);
+                DrawConversionSection();
+                EditorGUILayout.Space(8.0f);
+                DrawGeneralParametersSection();
+                EditorGUILayout.Space(8.0f);
+                DrawAnimationSection();
+                EditorGUI.indentLevel--;
+            }
             EditorGUILayout.Space(8.0f);
             EditorGUILayout.HelpBox(statusMessage, statusType);
             EditorGUILayout.EndScrollView();
         }
 
-        private void DrawTargetSection()
+        private void DrawQuickActionsSection()
         {
-            EditorGUILayout.LabelField("目标", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("一键处理", EditorStyles.boldLabel);
 
             EditorGUI.BeginChangeCheck();
             GameObject newRoot = (GameObject)EditorGUILayout.ObjectField(
@@ -90,10 +99,21 @@ namespace LyumaShader
                 modelRoot = newRoot;
             }
 
-            if(GUILayout.Button("一键执行：扫描、转换、修复并生成动画", GUILayout.Height(34.0f)))
+            EditorGUILayout.BeginHorizontal();
+            if(GUILayout.Button("一键添加", GUILayout.Height(34.0f)))
             {
                 RunCompleteWorkflow();
             }
+            if(GUILayout.Button("一键移除", GUILayout.Height(34.0f)))
+            {
+                RunCompleteRemoval();
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawTargetSection()
+        {
+            EditorGUILayout.LabelField("目标与扫描", EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
             if(GUILayout.Button("扫描模型中的材质"))
@@ -210,6 +230,44 @@ namespace LyumaShader
             }
 
             GenerateStrengthAnimations();
+        }
+
+        private void RunCompleteRemoval()
+        {
+            if(modelRoot == null)
+            {
+                SetStatus("请先指定模型根对象。", MessageType.Warning);
+                return;
+            }
+
+            ScanResult scan = CollectMaterials(new UnityEngine.Object[] { modelRoot });
+            SetTargets(scan, "模型");
+            List<Material> materials = GetUsableTargets();
+            if(materials.Count > 0)
+            {
+                RevertMaterials(materials, "模型");
+            }
+            else
+            {
+                RootBoneRepairResult restoreResult = ProcessRootBoneRepairTarget(modelRoot, true, false);
+                SetStatus(restoreResult.message, restoreResult.messageType);
+            }
+
+            LyumaWaifu2dStaticMeshConverter marker =
+                modelRoot.GetComponent<LyumaWaifu2dStaticMeshConverter>();
+            bool removedBuildConverter = marker != null;
+            if(marker != null)
+            {
+                Undo.DestroyObjectImmediate(marker);
+                EditorUtility.SetDirty(modelRoot);
+            }
+
+            SetStatus(
+                statusMessage + (removedBuildConverter
+                    ? "\n已移除 NDMF 普通 Mesh 构建期修复。"
+                    : "\n模型上没有 NDMF 普通 Mesh 构建期修复。"),
+                statusType
+            );
         }
 
         private void DrawConversionSection()

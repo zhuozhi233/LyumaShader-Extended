@@ -56,6 +56,7 @@ jobs:
             - 修复普通网格转换后的 Root Bone，优先自动设置为模型的 Humanoid Hips
             - 重新生成 2D 强度动画时覆盖同名动画内容，并保留原资源 GUID 与现有引用
             - 新增一键完整流程，依次执行模型扫描、材质转换、Root Bone 修复、普通 Mesh 构建期修复和动画生成
+            - 新增一键移除流程，批量还原材质与 Root Bone 修复并移除普通 Mesh 构建期转换
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
