@@ -1111,20 +1111,16 @@ namespace LyumaShader
             if(string.IsNullOrEmpty(outputFolder)) return;
 
             string safeRootName = MakeSafeFileName(root.name);
-            string disabledPath = AssetDatabase.GenerateUniqueAssetPath(
-                outputFolder + "/" + safeRootName + "_Lyuma2D_关闭.anim"
-            );
-            string enabledPath = AssetDatabase.GenerateUniqueAssetPath(
-                outputFolder + "/" + safeRootName + "_Lyuma2D_开启.anim"
-            );
+            string disabledPath = outputFolder + "/" + safeRootName + "_Lyuma2D_关闭.anim";
+            string enabledPath = outputFolder + "/" + safeRootName + "_Lyuma2D_开启.anim";
 
             AnimationClip disabledClip = CreateStrengthClip(root, animationScan.renderers, 0.0f);
             AnimationClip enabledClip = CreateStrengthClip(root, animationScan.renderers, 0.99f);
             disabledClip.name = Path.GetFileNameWithoutExtension(disabledPath);
             enabledClip.name = Path.GetFileNameWithoutExtension(enabledPath);
 
-            AssetDatabase.CreateAsset(disabledClip, disabledPath);
-            AssetDatabase.CreateAsset(enabledClip, enabledPath);
+            disabledClip = SaveOrOverwriteClip(disabledClip, disabledPath);
+            enabledClip = SaveOrOverwriteClip(enabledClip, enabledPath);
             AssetDatabase.SaveAssets();
 
             Selection.objects = new UnityEngine.Object[] { disabledClip, enabledClip };
@@ -1148,6 +1144,24 @@ namespace LyumaShader
                 ),
                 animationScan.HasWarnings ? MessageType.Warning : MessageType.Info
             );
+        }
+
+        private static AnimationClip SaveOrOverwriteClip(AnimationClip generatedClip, string assetPath)
+        {
+            AnimationClip existingClip = AssetDatabase.LoadAssetAtPath<AnimationClip>(assetPath);
+            if(existingClip == null)
+            {
+                AssetDatabase.CreateAsset(generatedClip, assetPath);
+                return generatedClip;
+            }
+
+            // Copy into the existing asset instead of deleting it so its GUID and all references remain valid.
+            Undo.RecordObject(existingClip, "更新 Lyuma Waifu2d 动画");
+            EditorUtility.CopySerialized(generatedClip, existingClip);
+            existingClip.name = Path.GetFileNameWithoutExtension(assetPath);
+            EditorUtility.SetDirty(existingClip);
+            UnityEngine.Object.DestroyImmediate(generatedClip);
+            return existingClip;
         }
 
         private static AnimationClip CreateStrengthClip(

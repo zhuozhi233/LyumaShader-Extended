@@ -82,6 +82,25 @@ namespace LyumaShader
             MeshFilter filter = source.GetComponent<MeshFilter>();
             if(filter == null || filter.sharedMesh == null) return null;
 
+            // Adding a SkinnedMeshRenderer can immediately destroy the MeshRenderer because
+            // Unity only permits one Renderer on a GameObject. Cache everything first.
+            GameObject go = source.gameObject;
+            Material[] sharedMaterials = source.sharedMaterials;
+            bool rendererEnabled = source.enabled;
+            ShadowCastingMode shadowCastingMode = source.shadowCastingMode;
+            bool receiveShadows = source.receiveShadows;
+            LightProbeUsage lightProbeUsage = source.lightProbeUsage;
+            ReflectionProbeUsage reflectionProbeUsage = source.reflectionProbeUsage;
+            Transform probeAnchor = source.probeAnchor;
+            MotionVectorGenerationMode motionVectorMode = source.motionVectorGenerationMode;
+            bool allowOcclusion = source.allowOcclusionWhenDynamic;
+            int sortingLayerId = source.sortingLayerID;
+            int sortingOrder = source.sortingOrder;
+            int lightmapIndex = source.lightmapIndex;
+            Vector4 lightmapScaleOffset = source.lightmapScaleOffset;
+            int realtimeLightmapIndex = source.realtimeLightmapIndex;
+            Vector4 realtimeLightmapScaleOffset = source.realtimeLightmapScaleOffset;
+
             Mesh mesh = Object.Instantiate(filter.sharedMesh);
             mesh.name = filter.sharedMesh.name + "_Waifu2dSingleBone";
             var weights = new BoneWeight[mesh.vertexCount];
@@ -97,39 +116,38 @@ namespace LyumaShader
                 AssetDatabase.CreateAsset(mesh, path);
             }
 
-            GameObject go = source.gameObject;
             SkinnedMeshRenderer target = useUndo
                 ? Undo.AddComponent<SkinnedMeshRenderer>(go)
                 : go.AddComponent<SkinnedMeshRenderer>();
             target.sharedMesh = mesh;
             target.bones = new[] { go.transform };
             target.rootBone = hips != null ? hips : go.transform;
-            target.sharedMaterials = source.sharedMaterials;
-            target.enabled = source.enabled;
-            target.shadowCastingMode = source.shadowCastingMode;
-            target.receiveShadows = source.receiveShadows;
-            target.lightProbeUsage = source.lightProbeUsage;
-            target.reflectionProbeUsage = source.reflectionProbeUsage;
-            target.probeAnchor = source.probeAnchor;
-            target.motionVectorGenerationMode = source.motionVectorGenerationMode;
-            target.allowOcclusionWhenDynamic = source.allowOcclusionWhenDynamic;
-            target.sortingLayerID = source.sortingLayerID;
-            target.sortingOrder = source.sortingOrder;
-            target.lightmapIndex = source.lightmapIndex;
-            target.lightmapScaleOffset = source.lightmapScaleOffset;
-            target.realtimeLightmapIndex = source.realtimeLightmapIndex;
-            target.realtimeLightmapScaleOffset = source.realtimeLightmapScaleOffset;
+            target.sharedMaterials = sharedMaterials;
+            target.enabled = rendererEnabled;
+            target.shadowCastingMode = shadowCastingMode;
+            target.receiveShadows = receiveShadows;
+            target.lightProbeUsage = lightProbeUsage;
+            target.reflectionProbeUsage = reflectionProbeUsage;
+            target.probeAnchor = probeAnchor;
+            target.motionVectorGenerationMode = motionVectorMode;
+            target.allowOcclusionWhenDynamic = allowOcclusion;
+            target.sortingLayerID = sortingLayerId;
+            target.sortingOrder = sortingOrder;
+            target.lightmapIndex = lightmapIndex;
+            target.lightmapScaleOffset = lightmapScaleOffset;
+            target.realtimeLightmapIndex = realtimeLightmapIndex;
+            target.realtimeLightmapScaleOffset = realtimeLightmapScaleOffset;
             target.localBounds = mesh.bounds;
 
             if(useUndo)
             {
-                Undo.DestroyObjectImmediate(source);
-                Undo.DestroyObjectImmediate(filter);
+                if(source != null) Undo.DestroyObjectImmediate(source);
+                if(filter != null) Undo.DestroyObjectImmediate(filter);
             }
             else
             {
-                Object.DestroyImmediate(source);
-                Object.DestroyImmediate(filter);
+                if(source != null) Object.DestroyImmediate(source);
+                if(filter != null) Object.DestroyImmediate(filter);
             }
             return target;
         }
