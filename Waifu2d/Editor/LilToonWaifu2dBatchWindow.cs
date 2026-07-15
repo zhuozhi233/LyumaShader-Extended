@@ -45,7 +45,7 @@ namespace LyumaShader
         private static void OpenWindow()
         {
             var window = GetWindow<LilToonWaifu2dBatchWindow>();
-            window.titleContent = new GUIContent("Waifu2d 批量工具");
+            window.titleContent = new GUIContent("Waifu2d 批量工具 by 浊鸷");
             window.minSize = new Vector2(470.0f, 590.0f);
             window.Show();
         }
@@ -221,6 +221,66 @@ namespace LyumaShader
                 RunRootBoneRepair(true);
             }
             EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(8.0f);
+            EditorGUILayout.LabelField("普通 MeshRenderer 修复", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "只处理模型中使用 Waifu2d 材质的 MeshRenderer + MeshFilter。构建期方式仅在 NDMF/MA 的构建副本中转换；直接方式会立即改为单骨骼 SkinnedMeshRenderer，并可通过 Undo 撤销。",
+                MessageType.Info
+            );
+            EditorGUILayout.BeginHorizontal();
+            if(GUILayout.Button("添加 NDMF 构建期转换", GUILayout.Height(28.0f)))
+            {
+                AddStaticMeshBuildConverter();
+            }
+            if(GUILayout.Button("直接转换为单骨骼", GUILayout.Height(28.0f)))
+            {
+                ConvertStaticMeshesDirectly();
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private void AddStaticMeshBuildConverter()
+        {
+            if(modelRoot == null)
+            {
+                SetStatus("请先指定模型根对象。", MessageType.Warning);
+                return;
+            }
+            int count = Waifu2dStaticMeshConversion.FindTargets(modelRoot).Count;
+            if(count == 0)
+            {
+                SetStatus("模型中没有找到使用 Waifu2d 材质的 MeshRenderer + MeshFilter。", MessageType.Warning);
+                return;
+            }
+            LyumaWaifu2dStaticMeshConverter marker = modelRoot.GetComponent<LyumaWaifu2dStaticMeshConverter>();
+            if(marker == null) marker = Undo.AddComponent<LyumaWaifu2dStaticMeshConverter>(modelRoot);
+            EditorUtility.SetDirty(modelRoot);
+            SetStatus(string.Format("已添加 NDMF 构建期转换，构建时将临时转换 {0} 个普通网格。", count), MessageType.Info);
+        }
+
+        private void ConvertStaticMeshesDirectly()
+        {
+            if(modelRoot == null)
+            {
+                SetStatus("请先指定模型根对象。", MessageType.Warning);
+                return;
+            }
+            List<MeshRenderer> targets = Waifu2dStaticMeshConversion.FindTargets(modelRoot);
+            if(targets.Count == 0)
+            {
+                SetStatus("模型中没有找到使用 Waifu2d 材质的 MeshRenderer + MeshFilter。", MessageType.Warning);
+                return;
+            }
+            Undo.IncrementCurrentGroup();
+            int group = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Waifu2d 普通网格转单骨骼");
+            int converted = 0;
+            foreach(MeshRenderer renderer in targets)
+                if(Waifu2dStaticMeshConversion.Convert(renderer, true, true) != null) converted++;
+            Undo.CollapseUndoOperations(group);
+            AssetDatabase.SaveAssets();
+            SetStatus(string.Format("已将 {0} 个普通网格直接转换为单骨骼 SkinnedMeshRenderer。", converted), MessageType.Info);
         }
 
         private void DrawGeneralParametersSection()
@@ -1102,7 +1162,14 @@ namespace LyumaShader
         private static Type GetAnimationRendererType(Renderer renderer)
         {
             if(renderer is SkinnedMeshRenderer) return typeof(SkinnedMeshRenderer);
-            if(renderer is MeshRenderer) return typeof(MeshRenderer);
+            if(renderer is MeshRenderer)
+            {
+                // A build-time converter changes this component type on the NDMF avatar copy.
+                // Generate the final binding type now so the curve still works after conversion.
+                if(renderer.GetComponentInParent<LyumaWaifu2dStaticMeshConverter>() != null)
+                    return typeof(SkinnedMeshRenderer);
+                return typeof(MeshRenderer);
+            }
             return typeof(Renderer);
         }
 

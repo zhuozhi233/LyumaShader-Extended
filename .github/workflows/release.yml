@@ -52,10 +52,13 @@ jobs:
           body: |
             VPM/VCC 软件包。
 
-            - 批量扫描新增控制器材质动画与 MA Material Setter、Material Swap、Merge Animator、Merge Motion 支持
-            - 转换、参数修改和移除会处理动画及组件中引用的备用材质
-            - 生成 2D 开关动画时会关联备用材质对应的 Renderer，并安全跳过未转换或无法定位的目标
-            - README 中的测试环境不会成为组件最低版本硬要求
+            - 新增普通 MeshRenderer + MeshFilter 修复
+            - 支持通过 NDMF 在构建副本中临时转换为单骨骼 SkinnedMeshRenderer，不修改原模型
+            - 支持直接转换为单骨骼 SkinnedMeshRenderer，并可通过 Unity Undo 撤销
+            - 转换目标会覆盖当前材质、动画换材质和 MA 换材质中使用的 Waifu2d 材质
+            - 生成的 2D 强度动画会适配构建期转换后的 Renderer 类型
+            - 包含 Waifu2d 朝向锚点与生成 Shader 迁移相关修复
+            - 窗口标题增加作者署名
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
