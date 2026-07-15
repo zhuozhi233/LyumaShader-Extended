@@ -90,6 +90,11 @@ namespace LyumaShader
                 modelRoot = newRoot;
             }
 
+            if(GUILayout.Button("一键执行：扫描、转换、修复并生成动画", GUILayout.Height(34.0f)))
+            {
+                RunCompleteWorkflow();
+            }
+
             EditorGUILayout.BeginHorizontal();
             if(GUILayout.Button("扫描模型中的材质"))
             {
@@ -170,6 +175,41 @@ namespace LyumaShader
                 }
                 EditorGUI.indentLevel--;
             }
+        }
+
+        private void RunCompleteWorkflow()
+        {
+            if(modelRoot == null)
+            {
+                SetStatus("请先指定模型根对象。", MessageType.Warning);
+                return;
+            }
+
+            ScanResult scan = CollectMaterials(new UnityEngine.Object[] { modelRoot });
+            SetTargets(scan, "模型");
+            List<Material> materials = GetUsableTargets();
+            if(materials.Count == 0)
+            {
+                SetStatus("模型中没有找到受支持的 lilToon、lilToon Custom 或 Poiyomi 材质，已停止一键执行。", MessageType.Warning);
+                return;
+            }
+
+            ConvertMaterials(materials, "模型");
+
+            RootBoneRepairResult rootBoneResult = ProcessRootBoneRepairTarget(modelRoot, false, false);
+            if(!EditorUtility.IsPersistent(modelRoot) && rootBoneResult.resolvedRoot != null)
+            {
+                modelRoot = rootBoneResult.resolvedRoot;
+            }
+
+            List<MeshRenderer> staticMeshes = Waifu2dStaticMeshConversion.FindTargets(modelRoot);
+            if(staticMeshes.Count > 0 && modelRoot.GetComponent<LyumaWaifu2dStaticMeshConverter>() == null)
+            {
+                Undo.AddComponent<LyumaWaifu2dStaticMeshConverter>(modelRoot);
+                EditorUtility.SetDirty(modelRoot);
+            }
+
+            GenerateStrengthAnimations();
         }
 
         private void DrawConversionSection()
