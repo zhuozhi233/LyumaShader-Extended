@@ -59,7 +59,6 @@ jobs:
             - 生成的 2D 强度动画会适配构建期转换后的 Renderer 类型
             - NDMF 转换与 Root Bone 修复按钮会根据组件状态自动切换为添加、移除、修复或还原
             - 直接转换无法通过工具还原，界面会明确提示使用 Unity Undo 或自行恢复组件
-            - 窗口标题增加作者署名
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
