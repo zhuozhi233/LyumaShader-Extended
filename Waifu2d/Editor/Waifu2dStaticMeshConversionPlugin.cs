@@ -21,8 +21,9 @@ namespace LyumaShader
                     foreach(LyumaWaifu2dStaticMeshConverter marker in
                             context.AvatarRootObject.GetComponentsInChildren<LyumaWaifu2dStaticMeshConverter>(true))
                     {
+                        Transform hips = Waifu2dStaticMeshConversion.FindHips(marker.gameObject);
                         foreach(MeshRenderer renderer in Waifu2dStaticMeshConversion.FindTargets(marker.gameObject))
-                            Waifu2dStaticMeshConversion.Convert(renderer, false, false);
+                            Waifu2dStaticMeshConversion.Convert(renderer, hips, false, false);
                         Object.DestroyImmediate(marker);
                     }
                 });

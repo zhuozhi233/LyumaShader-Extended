@@ -297,8 +297,9 @@ namespace LyumaShader
             int group = Undo.GetCurrentGroup();
             Undo.SetCurrentGroupName("Waifu2d 普通网格转单骨骼");
             int converted = 0;
+            Transform hips = Waifu2dStaticMeshConversion.FindHips(modelRoot);
             foreach(MeshRenderer renderer in targets)
-                if(Waifu2dStaticMeshConversion.Convert(renderer, true, true) != null) converted++;
+                if(Waifu2dStaticMeshConversion.Convert(renderer, hips, true, true) != null) converted++;
             Undo.CollapseUndoOperations(group);
             AssetDatabase.SaveAssets();
             SetStatus(string.Format("已将 {0} 个普通网格直接转换为单骨骼 SkinnedMeshRenderer。", converted), MessageType.Info);

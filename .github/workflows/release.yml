@@ -58,6 +58,7 @@ jobs:
             - 转换目标会覆盖当前材质、动画换材质和 MA 换材质中使用的 Waifu2d 材质
             - 生成的 2D 强度动画会适配构建期转换后的 Renderer 类型
             - NDMF 转换与 Root Bone 修复按钮会根据组件状态自动切换为添加、移除、修复或还原
+            - 修复普通网格转换后的 Root Bone，优先自动设置为模型的 Humanoid Hips
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip

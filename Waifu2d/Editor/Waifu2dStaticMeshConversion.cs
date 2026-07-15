@@ -53,7 +53,30 @@ namespace LyumaShader
             return result;
         }
 
-        internal static SkinnedMeshRenderer Convert(MeshRenderer source, bool persistentMesh, bool useUndo)
+        internal static Transform FindHips(GameObject root)
+        {
+            if(root == null) return null;
+            Animator animator = root.GetComponent<Animator>();
+            if(animator == null) animator = root.GetComponentInChildren<Animator>(true);
+            if(animator != null && animator.isHuman)
+            {
+                Transform humanoidHips = animator.GetBoneTransform(HumanBodyBones.Hips);
+                if(humanoidHips != null) return humanoidHips;
+            }
+
+            foreach(Transform child in root.GetComponentsInChildren<Transform>(true))
+            {
+                if(string.Equals(child.name, "Hips", StringComparison.OrdinalIgnoreCase)) return child;
+            }
+            return null;
+        }
+
+        internal static SkinnedMeshRenderer Convert(
+            MeshRenderer source,
+            Transform hips,
+            bool persistentMesh,
+            bool useUndo
+        )
         {
             if(source == null) return null;
             MeshFilter filter = source.GetComponent<MeshFilter>();
@@ -80,7 +103,7 @@ namespace LyumaShader
                 : go.AddComponent<SkinnedMeshRenderer>();
             target.sharedMesh = mesh;
             target.bones = new[] { go.transform };
-            target.rootBone = go.transform;
+            target.rootBone = hips != null ? hips : go.transform;
             target.sharedMaterials = source.sharedMaterials;
             target.enabled = source.enabled;
             target.shadowCastingMode = source.shadowCastingMode;
