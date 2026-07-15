@@ -176,7 +176,8 @@ namespace LyumaShader
         {
             EditorGUILayout.LabelField("应用 Lyuma Waifu2d", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "转换受支持的 lilToon、lilToon Custom 与 Poiyomi 材质；Custom Shader 会在 LyumaShader/Generated 中生成组合副本，原插件文件不会被修改。已经转换的材质会保留现有参数。",
+                "转换受支持的 lilToon、lilToon Custom 与 Poiyomi 材质；扫描会包含控制器动画和组件中引用的备用材质。" +
+                "Custom Shader 会在 LyumaShader/Generated 中生成组合副本，原插件文件不会被修改。已经转换的材质会保留现有参数。",
                 MessageType.Info
             );
 
@@ -272,8 +273,8 @@ namespace LyumaShader
         {
             EditorGUILayout.LabelField("生成 2D 开关动画", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "以“模型根对象”为动画根节点，为其所有使用 Lyuma Waifu2d lilToon、lilToon Custom 或 Poiyomi 材质的 Renderer 建立曲线。" +
-                "只处理已经转换的材质；未转换材质不会生成对应动画曲线。",
+                "以“模型根对象”为动画根节点，同时检查当前材质、控制器换材质和 MA 换材质所关联的 Renderer。" +
+                "只有相关受支持材质均已转换时才建立曲线；未转换或无法确定目标的关联材质会被跳过并提示。",
                 MessageType.Info
             );
 
@@ -844,15 +845,15 @@ namespace LyumaShader
 
         private static bool HasWaifu2dMaterial(GameObject root)
         {
-            foreach(Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            if(root == null) return false;
+            Waifu2dAssociatedMaterialScanner.Result scan =
+                Waifu2dAssociatedMaterialScanner.Collect(new UnityEngine.Object[] { root });
+            foreach(Material material in scan.AllMaterials)
             {
-                foreach(Material material in renderer.sharedMaterials)
+                if(material != null && material.shader != null &&
+                    IsWaifu2dShader(material.shader))
                 {
-                    if(material != null && material.shader != null &&
-                        IsWaifu2dShader(material.shader))
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
             return false;
@@ -1000,19 +1001,27 @@ namespace LyumaShader
                 return;
             }
 
-            int skippedUnconvertedMaterials = 0;
-            foreach(Material material in materials)
+            AnimationRendererScanResult animationScan = FindAnimatedRenderers(
+                root,
+                rootScan.associatedScan
+            );
+            if(animationScan.renderers.Count == 0)
             {
-                if(material == null || material.shader == null || !IsWaifu2dShader(material.shader))
-                {
-                    skippedUnconvertedMaterials++;
-                }
-            }
-
-            List<Renderer> animatedRenderers = FindAnimatedRenderers(root);
-            if(animatedRenderers.Count == 0)
-            {
-                SetStatus("模型中没有使用已转换 Waifu2d 材质的 Renderer，未生成动画。", MessageType.Warning);
+                SetStatus(
+                    string.Format(
+                        "模型中没有可以安全生成曲线的 Renderer，未生成动画。" +
+                        "\n未转换关联材质 {0} 个：{1}" +
+                        "\n因混用未转换材质跳过 Renderer {2} 个：{3}" +
+                        "\n已转换但无法确定目标 Renderer 的关联材质 {4} 个：{5}",
+                        animationScan.unconvertedMaterials.Count,
+                        FormatObjectNames(animationScan.unconvertedMaterials),
+                        animationScan.skippedRenderers.Count,
+                        FormatObjectNames(animationScan.skippedRenderers),
+                        animationScan.unresolvedConvertedMaterials.Count,
+                        FormatObjectNames(animationScan.unresolvedConvertedMaterials)
+                    ),
+                    MessageType.Warning
+                );
                 return;
             }
 
@@ -1027,8 +1036,8 @@ namespace LyumaShader
                 outputFolder + "/" + safeRootName + "_Lyuma2D_开启.anim"
             );
 
-            AnimationClip disabledClip = CreateStrengthClip(root, animatedRenderers, 0.0f);
-            AnimationClip enabledClip = CreateStrengthClip(root, animatedRenderers, 0.99f);
+            AnimationClip disabledClip = CreateStrengthClip(root, animationScan.renderers, 0.0f);
+            AnimationClip enabledClip = CreateStrengthClip(root, animationScan.renderers, 0.99f);
             disabledClip.name = Path.GetFileNameWithoutExtension(disabledPath);
             enabledClip.name = Path.GetFileNameWithoutExtension(enabledPath);
 
@@ -1040,13 +1049,22 @@ namespace LyumaShader
             EditorGUIUtility.PingObject(enabledClip);
             SetStatus(
                 string.Format(
-                    "已生成 2 个动画，共绑定 {0} 个 Renderer；跳过 {1} 个未转换材质。\n{2}\n{3}",
-                    animatedRenderers.Count,
-                    skippedUnconvertedMaterials,
+                    "已生成 2 个动画，共绑定 {0} 个 Renderer。" +
+                    "\n未转换关联材质 {1} 个：{2}" +
+                    "\n因混用未转换材质跳过 Renderer {3} 个：{4}" +
+                    "\n已转换但无法确定目标 Renderer 的关联材质 {5} 个：{6}" +
+                    "\n{7}\n{8}",
+                    animationScan.renderers.Count,
+                    animationScan.unconvertedMaterials.Count,
+                    FormatObjectNames(animationScan.unconvertedMaterials),
+                    animationScan.skippedRenderers.Count,
+                    FormatObjectNames(animationScan.skippedRenderers),
+                    animationScan.unresolvedConvertedMaterials.Count,
+                    FormatObjectNames(animationScan.unresolvedConvertedMaterials),
                     disabledPath,
                     enabledPath
                 ),
-                MessageType.Info
+                animationScan.HasWarnings ? MessageType.Warning : MessageType.Info
             );
         }
 
@@ -1088,25 +1106,95 @@ namespace LyumaShader
             return typeof(Renderer);
         }
 
-        private static List<Renderer> FindAnimatedRenderers(GameObject root)
+        private static AnimationRendererScanResult FindAnimatedRenderers(
+            GameObject root,
+            Waifu2dAssociatedMaterialScanner.Result associatedScan
+        )
         {
-            var result = new List<Renderer>();
+            var result = new AnimationRendererScanResult();
+            var mappedMaterials = new HashSet<Material>();
             foreach(Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
             {
-                bool hasWaifu2dMaterial = false;
-                foreach(Material material in renderer.sharedMaterials)
+                bool hasConvertedMaterial = false;
+                bool hasUnconvertedMaterial = false;
+                ICollection<Material> candidates = associatedScan != null
+                    ? associatedScan.GetCandidateMaterials(renderer)
+                    : renderer.sharedMaterials;
+
+                foreach(Material material in candidates)
                 {
-                    if(material != null && material.shader != null &&
-                        IsWaifu2dShader(material.shader) &&
+                    if(material == null || material.shader == null ||
+                        !IsSupportedShader(material.shader))
+                    {
+                        continue;
+                    }
+
+                    mappedMaterials.Add(material);
+                    if(IsWaifu2dShader(material.shader) &&
                         material.HasProperty(TwoDimensionalnessProperty))
                     {
-                        hasWaifu2dMaterial = true;
-                        break;
+                        hasConvertedMaterial = true;
+                    }
+                    else
+                    {
+                        hasUnconvertedMaterial = true;
+                        result.unconvertedMaterials.Add(material);
                     }
                 }
-                if(hasWaifu2dMaterial) result.Add(renderer);
+
+                if(hasConvertedMaterial && !hasUnconvertedMaterial)
+                {
+                    result.renderers.Add(renderer);
+                }
+                else if(hasUnconvertedMaterial)
+                {
+                    result.skippedRenderers.Add(renderer);
+                }
             }
+
+            if(associatedScan != null)
+            {
+                foreach(Material material in associatedScan.AllMaterials)
+                {
+                    if(material == null || material.shader == null ||
+                        !IsSupportedShader(material.shader))
+                    {
+                        continue;
+                    }
+
+                    if(!IsWaifu2dShader(material.shader))
+                    {
+                        result.unconvertedMaterials.Add(material);
+                    }
+                    else if(material.HasProperty(TwoDimensionalnessProperty) &&
+                        !mappedMaterials.Contains(material))
+                    {
+                        result.unresolvedConvertedMaterials.Add(material);
+                    }
+                }
+            }
+
             return result;
+        }
+
+        private static string FormatObjectNames<T>(IEnumerable<T> objects) where T : UnityEngine.Object
+        {
+            const int maximumNames = 6;
+            var names = new List<string>();
+            if(objects != null)
+            {
+                foreach(T target in objects)
+                {
+                    if(target != null) names.Add(target.name);
+                }
+            }
+
+            if(names.Count == 0) return "无";
+            names.Sort(StringComparer.Ordinal);
+            int remaining = names.Count - maximumNames;
+            if(remaining > 0) names.RemoveRange(maximumNames, remaining);
+            string formatted = string.Join("、", names.ToArray());
+            return remaining > 0 ? formatted + " 等另外 " + remaining + " 个" : formatted;
         }
 
         private string ResolveAnimationOutputFolder()
@@ -1168,13 +1256,23 @@ namespace LyumaShader
             targetMaterials.AddRange(result.supportedMaterials);
             SetStatus(
                 string.Format(
-                    "已读取{0}：扫描 {1} 个 Renderer、{2} 个不重复材质，其中 {3} 个是受支持的 lilToon、lilToon Custom 或 Poiyomi 材质。",
+                    "已读取{0}：扫描 {1} 个 Renderer、{2} 个控制器、{3} 个动画，找到 {4} 个不重复材质" +
+                    "（Renderer 当前引用 {5}、组件引用 {6}、动画换材质引用 {7}），其中 {8} 个受支持。" +
+                    "序列化读取失败 {9} 个组件。",
                     sourceName,
                     result.rendererCount,
+                    result.controllerCount,
+                    result.animationClipCount,
                     result.allMaterialCount,
-                    result.supportedMaterials.Count
+                    result.rendererMaterialCount,
+                    result.componentMaterialCount,
+                    result.animationMaterialCount,
+                    result.supportedMaterials.Count,
+                    result.serializationFailureCount
                 ),
-                result.supportedMaterials.Count > 0 ? MessageType.Info : MessageType.Warning
+                result.supportedMaterials.Count > 0 && result.serializationFailureCount == 0
+                    ? MessageType.Info
+                    : MessageType.Warning
             );
             Repaint();
         }
@@ -1202,41 +1300,13 @@ namespace LyumaShader
 
         private static ScanResult CollectMaterials(IEnumerable<UnityEngine.Object> objects)
         {
-            var allMaterials = new HashSet<Material>();
+            Waifu2dAssociatedMaterialScanner.Result associatedScan =
+                Waifu2dAssociatedMaterialScanner.Collect(objects);
             var supportedMaterials = new List<Material>();
-            var visitedRenderers = new HashSet<Renderer>();
 
-            if(objects != null)
+            foreach(Material material in associatedScan.AllMaterials)
             {
-                foreach(UnityEngine.Object sourceObject in objects)
-                {
-                    if(sourceObject == null) continue;
-                    Material directMaterial = sourceObject as Material;
-                    if(directMaterial != null)
-                    {
-                        allMaterials.Add(directMaterial);
-                        continue;
-                    }
-
-                    GameObject gameObject = sourceObject as GameObject;
-                    Component component = sourceObject as Component;
-                    if(gameObject == null && component != null) gameObject = component.gameObject;
-                    if(gameObject == null) continue;
-
-                    foreach(Renderer renderer in gameObject.GetComponentsInChildren<Renderer>(true))
-                    {
-                        if(renderer == null || !visitedRenderers.Add(renderer)) continue;
-                        foreach(Material material in renderer.sharedMaterials)
-                        {
-                            if(material != null) allMaterials.Add(material);
-                        }
-                    }
-                }
-            }
-
-            foreach(Material material in allMaterials)
-            {
-                if(material.shader != null && IsSupportedShader(material.shader))
+                if(material != null && material.shader != null && IsSupportedShader(material.shader))
                 {
                     supportedMaterials.Add(material);
                 }
@@ -1246,8 +1316,15 @@ namespace LyumaShader
             return new ScanResult
             {
                 supportedMaterials = supportedMaterials,
-                rendererCount = visitedRenderers.Count,
-                allMaterialCount = allMaterials.Count
+                rendererCount = associatedScan.RendererCount,
+                controllerCount = associatedScan.ControllerCount,
+                animationClipCount = associatedScan.AnimationClipCount,
+                allMaterialCount = associatedScan.AllMaterials.Count,
+                rendererMaterialCount = associatedScan.RendererReferencedMaterials.Count,
+                componentMaterialCount = associatedScan.ComponentReferencedMaterials.Count,
+                animationMaterialCount = associatedScan.AnimationReferencedMaterials.Count,
+                serializationFailureCount = associatedScan.SerializationFailureCount,
+                associatedScan = associatedScan
             };
         }
 
@@ -1314,7 +1391,32 @@ namespace LyumaShader
         {
             internal List<Material> supportedMaterials;
             internal int rendererCount;
+            internal int controllerCount;
+            internal int animationClipCount;
             internal int allMaterialCount;
+            internal int rendererMaterialCount;
+            internal int componentMaterialCount;
+            internal int animationMaterialCount;
+            internal int serializationFailureCount;
+            internal Waifu2dAssociatedMaterialScanner.Result associatedScan;
+        }
+
+        private sealed class AnimationRendererScanResult
+        {
+            internal readonly List<Renderer> renderers = new List<Renderer>();
+            internal readonly HashSet<Material> unconvertedMaterials = new HashSet<Material>();
+            internal readonly HashSet<Material> unresolvedConvertedMaterials = new HashSet<Material>();
+            internal readonly HashSet<Renderer> skippedRenderers = new HashSet<Renderer>();
+
+            internal bool HasWarnings
+            {
+                get
+                {
+                    return unconvertedMaterials.Count > 0 ||
+                        unresolvedConvertedMaterials.Count > 0 ||
+                        skippedRenderers.Count > 0;
+                }
+            }
         }
     }
 }

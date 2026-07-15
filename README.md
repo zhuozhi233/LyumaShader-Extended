@@ -10,21 +10,11 @@
 - 支持 lilToon 的普通、Lite、描边、折射、毛发、宝石、覆盖、假阴影和 Multi 等变体。
 - 自动识别使用 `.lilcontainer` 的 lilToon Custom Shader，例如 SuperLilToonCyber。
 - 支持 Poiyomi Shader。
-- 批量转换模型、Prefab、材质和当前多选对象。
+- 批量转换模型、Prefab、材质和当前多选对象，并扫描控制器动画与组件中引用的备用材质。
 - 批量修改 2D 强度、朝向、锁定轴和 Z 深度修正。
 - 一键移除 Waifu2d，并恢复转换前的 Shader。
-- 为已经转换的材质生成“关闭 2D”和“开启 2D”两个动画。
+- 为已经转换的材质生成“关闭 2D”和“开启 2D”两个动画，支持控制器及 MA 换材质关联的 Renderer。
 - 在模型 Root 上一键添加或还原 `MA Mesh Settings`，统一到 Humanoid `Hips` 并自动计算公共 Bounds。
-
-## 1.1.0 更新
-
-- 取消 Modular Avatar 的最低版本限制，测试环境版本只用于兼容性参考。
-- lilToon、Poiyomi 同样不按 README 中的测试版本限制安装。
-- 新增 Root Bone 修复与可逆还原，解决衣服、头发使用不同根骨骼时的二维位置问题。
-- 修复旧工程中 `Waifu2d.cginc` 路径查找失败的问题。
-- 改善 lilToon FakeShadow、MultiOutline 和 `_OutlineZBias` 的兼容性。
-- 默认 Z 深度修正调整为 `0.8`，降低二维状态下的穿模和闪烁。
-- 批量工具菜单调整为 `Tools > LyumaShader Extended > Waifu2d 批量工具`。
 
 ## 安装
 
@@ -48,7 +38,7 @@
 
 `Tools > LyumaShader Extended > Waifu2d 批量工具`
 
-在窗口中扫描模型材质或读取当前多选，然后执行转换、批量参数修改、移除、动画生成或 Root Bone 修复。
+在窗口中扫描模型材质或读取当前多选，然后执行转换、批量参数修改、移除、动画生成或 Root Bone 修复。扫描模型时会同时读取控制器动画和组件引用的备用材质，不需要先手动切换到对应状态。
 
 也可以右键材质：
 
