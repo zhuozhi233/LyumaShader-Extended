@@ -21,7 +21,7 @@ namespace LyumaShader
             "Packages/com.zhuozhi.lyumashader-extended/Waifu2d/Resources/Waifu2dTransparent.png";
         private const string ToggleParameterName = "zhz/Lyuma2D";
         private const string ToggleDisplayName =
-            "<b><size=35><line-height=100%><voffset=4.3em>2D</b>";
+            "<b><size=35><line-height=100%><voffset=3.8em>2D</b>";
         private const string TogglePrefabFileName = "切换2D开关";
         private const string TwoDimensionalnessProperty = "_2d_coef";
         private const string FacingDirectionProperty = "_facing_coef";
