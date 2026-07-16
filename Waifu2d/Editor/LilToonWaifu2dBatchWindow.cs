@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using nadena.dev.modular_avatar.core;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEngine;
 
 namespace LyumaShader
@@ -16,11 +17,17 @@ namespace LyumaShader
     public sealed class LilToonWaifu2dBatchWindow : EditorWindow
     {
         private const string DefaultAnimationFolder = "Assets/LyumaShader/GeneratedAnimations";
+        private const string ToggleIconPath =
+            "Packages/com.zhuozhi.lyumashader-extended/Waifu2d/Resources/Waifu2dTransparent.png";
+        private const string ToggleParameterName = "zhz/Lyuma2D";
+        private const string ToggleDisplayName =
+            "<b><size=35><line-height=100%><voffset=4.3em>2D</b>";
+        private const string TogglePrefabFileName = "切换2D开关";
         private const string TwoDimensionalnessProperty = "_2d_coef";
         private const string FacingDirectionProperty = "_facing_coef";
         private const string LockAxisProperty = "_lock2daxis_coef";
         private const string SquashZProperty = "_zcorrect_coef";
-        private const int CurrentSettingsVersion = 1;
+        private const int CurrentSettingsVersion = 2;
 
         [SerializeField] private GameObject modelRoot;
         [SerializeField] private DefaultAsset animationOutputFolder;
@@ -33,7 +40,7 @@ namespace LyumaShader
         [SerializeField] private float twoDimensionalness = 0.99f;
         [SerializeField] private float facingDirection;
         [SerializeField] private float lockAxis = 1.0f;
-        [SerializeField] private float squashZ = 0.8f;
+        [SerializeField] private float squashZ = 1.0f;
         [SerializeField] private int settingsVersion;
 
         [SerializeField] private bool showAdvancedSettings;
@@ -56,7 +63,8 @@ namespace LyumaShader
             if(settingsVersion >= CurrentSettingsVersion) return;
             applyTwoDimensionalness = true;
             if(twoDimensionalness <= 0.0f) twoDimensionalness = 0.99f;
-            if(Mathf.Approximately(squashZ, 0.975f)) squashZ = 0.8f;
+            if(Mathf.Approximately(squashZ, 0.975f) || Mathf.Approximately(squashZ, 0.8f))
+                squashZ = 1.0f;
             settingsVersion = CurrentSettingsVersion;
         }
 
@@ -432,7 +440,7 @@ namespace LyumaShader
             DrawOptionalSlider(
                 ref applySquashZ,
                 ref squashZ,
-                new GUIContent("Z 深度修正", "Squash Z：推荐 0.8；数值越低越保留原始 3D 深度"),
+                new GUIContent("Z 深度修正", "Squash Z：推荐 1.0；使用压平后的稳定深度"),
                 0.0f,
                 1.0f
             );
@@ -454,7 +462,8 @@ namespace LyumaShader
             EditorGUILayout.LabelField("生成 2D 开关动画", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 "以“模型根对象”为动画根节点，同时检查当前材质、控制器换材质和 MA 换材质所关联的 Renderer。" +
-                "只有相关受支持材质均已转换时才建立曲线；未转换或无法确定目标的关联材质会被跳过并提示。",
+                "只有相关受支持材质均已转换时才建立曲线；未转换或无法确定目标的关联材质会被跳过并提示。" +
+                "每个模型会使用独立文件夹，并生成两个动画、BlendTree 和可放入模型 Root 的 MA 开关 Prefab。",
                 MessageType.Info
             );
 
@@ -465,7 +474,7 @@ namespace LyumaShader
                 false
             );
 
-            if(GUILayout.Button("生成两个动画（2D 强度 0 / 0.99）", GUILayout.Height(32.0f)))
+            if(GUILayout.Button("生成 2D 开关动画与 MA Prefab", GUILayout.Height(32.0f)))
             {
                 GenerateStrengthAnimations();
             }
@@ -1205,12 +1214,16 @@ namespace LyumaShader
                 return;
             }
 
-            string outputFolder = ResolveAnimationOutputFolder();
-            if(string.IsNullOrEmpty(outputFolder)) return;
-
             string safeRootName = MakeSafeFileName(root.name);
+            string outputRootFolder = ResolveAnimationOutputFolder();
+            if(string.IsNullOrEmpty(outputRootFolder)) return;
+            string outputFolder = outputRootFolder + "/" + safeRootName;
+            EnsureAssetFolder(outputFolder);
+
             string disabledPath = outputFolder + "/" + safeRootName + "_Lyuma2D_关闭.anim";
             string enabledPath = outputFolder + "/" + safeRootName + "_Lyuma2D_开启.anim";
+            string blendTreePath = outputFolder + "/" + safeRootName + "_Lyuma2D_BlendTree.asset";
+            string prefabPath = outputFolder + "/" + TogglePrefabFileName + ".prefab";
 
             AnimationClip disabledClip = CreateStrengthClip(root, animationScan.renderers, 0.0f);
             AnimationClip enabledClip = CreateStrengthClip(root, animationScan.renderers, 0.99f);
@@ -1219,17 +1232,24 @@ namespace LyumaShader
 
             disabledClip = SaveOrOverwriteClip(disabledClip, disabledPath);
             enabledClip = SaveOrOverwriteClip(enabledClip, enabledPath);
+
+            BlendTree blendTree = CreateStrengthBlendTree(disabledClip, enabledClip);
+            blendTree.name = Path.GetFileNameWithoutExtension(blendTreePath);
+            blendTree = SaveOrOverwriteBlendTree(blendTree, blendTreePath);
+            GameObject switchPrefab = SaveSwitchPrefab(blendTree, prefabPath);
             AssetDatabase.SaveAssets();
 
-            Selection.objects = new UnityEngine.Object[] { disabledClip, enabledClip };
-            EditorGUIUtility.PingObject(enabledClip);
+            Selection.objects = switchPrefab != null
+                ? new UnityEngine.Object[] { disabledClip, enabledClip, blendTree, switchPrefab }
+                : new UnityEngine.Object[] { disabledClip, enabledClip, blendTree };
+            EditorGUIUtility.PingObject(switchPrefab != null ? switchPrefab : blendTree);
             SetStatus(
                 string.Format(
-                    "已生成 2 个动画，共绑定 {0} 个 Renderer。" +
+                    "已在模型独立文件夹中生成 2 个动画、1 个 BlendTree 和 1 个 MA 开关 Prefab，共绑定 {0} 个 Renderer。" +
                     "\n未转换关联材质 {1} 个：{2}" +
                     "\n因混用未转换材质跳过 Renderer {3} 个：{4}" +
                     "\n已转换但无法确定目标 Renderer 的关联材质 {5} 个：{6}" +
-                    "\n{7}\n{8}",
+                    "\n{7}\n{8}\n{9}\n{10}",
                     animationScan.renderers.Count,
                     animationScan.unconvertedMaterials.Count,
                     FormatObjectNames(animationScan.unconvertedMaterials),
@@ -1238,7 +1258,9 @@ namespace LyumaShader
                     animationScan.unresolvedConvertedMaterials.Count,
                     FormatObjectNames(animationScan.unresolvedConvertedMaterials),
                     disabledPath,
-                    enabledPath
+                    enabledPath,
+                    blendTreePath,
+                    prefabPath
                 ),
                 animationScan.HasWarnings ? MessageType.Warning : MessageType.Info
             );
@@ -1260,6 +1282,90 @@ namespace LyumaShader
             EditorUtility.SetDirty(existingClip);
             UnityEngine.Object.DestroyImmediate(generatedClip);
             return existingClip;
+        }
+
+        private static BlendTree CreateStrengthBlendTree(AnimationClip disabledClip, AnimationClip enabledClip)
+        {
+            var blendTree = new BlendTree
+            {
+                blendType = BlendTreeType.Simple1D,
+                blendParameter = ToggleParameterName,
+                minThreshold = 0.0f,
+                maxThreshold = 1.0f,
+                useAutomaticThresholds = false
+            };
+            blendTree.children = new[]
+            {
+                new ChildMotion
+                {
+                    motion = disabledClip,
+                    threshold = 0.0f,
+                    timeScale = 1.0f,
+                    directBlendParameter = "__ModularAvatarInternal/One"
+                },
+                new ChildMotion
+                {
+                    motion = enabledClip,
+                    threshold = 1.0f,
+                    timeScale = 1.0f,
+                    directBlendParameter = "__ModularAvatarInternal/One"
+                }
+            };
+            return blendTree;
+        }
+
+        private static BlendTree SaveOrOverwriteBlendTree(BlendTree generatedTree, string assetPath)
+        {
+            BlendTree existingTree = AssetDatabase.LoadAssetAtPath<BlendTree>(assetPath);
+            if(existingTree == null)
+            {
+                AssetDatabase.CreateAsset(generatedTree, assetPath);
+                return generatedTree;
+            }
+
+            // Keep the existing GUID so an already placed MA switch Prefab retains its reference.
+            Undo.RecordObject(existingTree, "更新 Lyuma Waifu2d BlendTree");
+            EditorUtility.CopySerialized(generatedTree, existingTree);
+            existingTree.name = Path.GetFileNameWithoutExtension(assetPath);
+            EditorUtility.SetDirty(existingTree);
+            UnityEngine.Object.DestroyImmediate(generatedTree);
+            return existingTree;
+        }
+
+        private static GameObject SaveSwitchPrefab(BlendTree blendTree, string assetPath)
+        {
+            var temporaryObject = new GameObject(ToggleDisplayName);
+            try
+            {
+                ModularAvatarMenuItem menuItem = temporaryObject.AddComponent<ModularAvatarMenuItem>();
+                menuItem.label = ToggleDisplayName;
+                menuItem.PortableControl.Type = PortableControlType.Toggle;
+                menuItem.PortableControl.Parameter = ToggleParameterName;
+                menuItem.PortableControl.Value = 1.0f;
+                menuItem.PortableControl.Icon = AssetDatabase.LoadAssetAtPath<Texture2D>(ToggleIconPath);
+                menuItem.isSynced = true;
+                menuItem.isSaved = true;
+                menuItem.isDefault = false;
+                menuItem.automaticValue = true;
+
+                temporaryObject.AddComponent<ModularAvatarMenuInstaller>();
+                ModularAvatarMergeBlendTree mergeBlendTree =
+                    temporaryObject.AddComponent<ModularAvatarMergeBlendTree>();
+                mergeBlendTree.Motion = blendTree;
+                mergeBlendTree.PathMode = MergeAnimatorPathMode.Absolute;
+
+                GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(temporaryObject, assetPath);
+                if(savedPrefab != null && savedPrefab.name != ToggleDisplayName)
+                {
+                    savedPrefab.name = ToggleDisplayName;
+                    EditorUtility.SetDirty(savedPrefab);
+                }
+                return savedPrefab;
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(temporaryObject);
+            }
         }
 
         private static AnimationClip CreateStrengthClip(

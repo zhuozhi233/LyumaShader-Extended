@@ -451,7 +451,7 @@ namespace LyumaShader {
                 "        _2d_coef (\"Twodimensionalness\", Range(0, 1)) = 0.99\n" +
                 "        _facing_coef (\"Face in Profile\", Range (-1, 1)) = 0.0\n" +
                 "        _lock2daxis_coef (\"Lock 2d Axis\", Range (0, 1)) = " + (vr2d ? "0.0" : "1.0") + "\n" +
-                "        _zcorrect_coef (\"Squash Z (recommended=.8; 0=3d depth; 1=z-fight)\", Float) = " + (vr2d ? "0.0" : "0.8") + "\n";
+                "        _zcorrect_coef (\"Squash Z (recommended=1; stable flattened depth)\", Float) = " + (vr2d ? "0.0" : "1.0") + "\n";
             epLine = epLine.Substring (0, beginPropertiesSkip) + propertiesAdd + epLine.Substring (beginPropertiesSkip);
             shaderData [beginPropertiesLineNum] = epLine;
 

@@ -86,25 +86,52 @@ static float3 facingApproxEyeDir = normalize(lerp(approxCameraDir, targetApproxE
 static float2 eyeFacing = lerp(float2(1,0), facingApproxEyeDir.xz, _facing_coef);
 
 float4 waifu_computeWorldFlatWorldPos(float4 objToWorld) {
-    float3 oPos = UnityWorldToViewPos(objToWorld.xyz).xyz;
-    float4 unprojectedPos = mul(myInvVMat, objToWorld);
-    float4 semiProjectedPos = float4(unprojectedPos.xyz, 1.);
-    semiProjectedPos.z = 0.;
-    float4 actualObjectPos = mul(myVMat, semiProjectedPos);
-    actualObjectPos.y = objToWorld.y; /// MAD HAX - doesn't fix the problem :-p
-    return actualObjectPos;
+    // Work relative to the renderer origin. The old matrix round-trip multiplied
+    // large absolute world positions by matrices containing the opposite large
+    // translation. At world coordinates around 1,000-10,000 that cancellation
+    // loses the small depth differences which keep a flattened mesh stable.
+    float3 worldOffset = objToWorld.xyz - objectPos;
+    float3 flattenedWorldOffset = worldOffset - zAxis * dot(worldOffset, zAxis);
+    return float4(objectPos + flattenedWorldOffset, objToWorld.w);
+}
+
+float3 waifu_computeVertexWorldOffset(float4 inVertex) {
+    // A vertex is already in the renderer's (possibly skinned) object space.
+    // Transform it as a direction so the large object translation is never
+    // introduced and subtracted again.
+    float3 originalWorldOffset = mul((float3x3)unity_ObjectToWorld, inVertex.xyz);
+    float3 flattenedWorldOffset = originalWorldOffset
+        - zAxis * dot(originalWorldOffset, zAxis);
+    return lerp(originalWorldOffset, flattenedWorldOffset, waifu_coef);
+}
+
+float4 waifu_computeViewPosFromWorldOffset(float3 worldOffset) {
+    // UNITY_MATRIX_MV gives the renderer origin directly in view space. Apply
+    // the small relative offset only as a direction, which remains precise even
+    // when both the avatar and camera are far away from the world origin.
+    float4 objectOriginVS = mul(UNITY_MATRIX_MV, float4(0.0, 0.0, 0.0, 1.0));
+    return float4(
+        objectOriginVS.xyz + mul((float3x3)UNITY_MATRIX_V, worldOffset),
+        1.0);
+}
+
+float4 waifu_computeVertexViewPos(float4 inVertex) {
+    return waifu_computeViewPosFromWorldOffset(
+        waifu_computeVertexWorldOffset(inVertex));
 }
 
 // inVertex: original model space vertex;
 float4 waifu_computeVertexWorldPos(float4 inVertex) {
 	// START CRAZY PER VERTEX
-    float4 objToWorld = mul(unity_ObjectToWorld, inVertex);
-    float4 actualObjectPos = waifu_computeWorldFlatWorldPos(objToWorld);
-    return waifu_coef * actualObjectPos + (1. - waifu_coef) * objToWorld;
+    return float4(objectPos + waifu_computeVertexWorldOffset(inVertex), inVertex.w);
 }
 
 float4 waifu_computeVertexLocalPos(float4 inVertex) {
-    return mul(unity_WorldToObject, waifu_computeVertexWorldPos(inVertex));
+    // Convert the relative world offset as a direction. This avoids another
+    // absolute world -> object cancellation in shadow-caster helpers.
+    return float4(
+        mul((float3x3)unity_WorldToObject, waifu_computeVertexWorldOffset(inVertex)),
+        inVertex.w);
 }
 
 float4 waifu_projectVertex2(float4 vertexWorldPos, float4 origPos) {
@@ -112,7 +139,10 @@ float4 waifu_projectVertex2(float4 vertexWorldPos, float4 origPos) {
     if (waifu_coef <= 1.0e-6) {
         return oPos;
     }
-    float4 newViewPos = mul(UNITY_MATRIX_V, vertexWorldPos);
+    // Reconstruct the flattened vertex directly in view space from its small
+    // object-relative offset. vertexWorldPos is retained in the signature for
+    // compatibility with generated shaders, but is deliberately not projected.
+    float4 newViewPos = waifu_computeVertexViewPos(origPos);
     float4 newPos = mul(UNITY_MATRIX_P, newViewPos);
     newPos.z = lerp(sign(oPos.w * oPos.z * newPos.w) * max(0.00001, abs(oPos.z)) * max(0.00001, abs(newPos.w)) / max(0.00001, abs(oPos.w)), newPos.z, _zcorrect_coef);
     return newPos;

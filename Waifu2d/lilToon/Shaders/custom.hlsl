@@ -16,4 +16,4 @@
 // lilToon invokes this after its own object-space deformation (outline, fur,
 // AudioLink, tessellation, and so on), so those features are flattened too.
 #define LIL_CUSTOM_VERTEX_WS \
-    LyumaWaifu2dApply(vertexInput);
+    LyumaWaifu2dApply(vertexInput, input.positionOS.xyz);

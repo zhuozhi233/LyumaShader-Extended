@@ -103,7 +103,7 @@ namespace LyumaShader
             material.SetFloat("_2d_coef", 0.99f);
             material.SetFloat("_facing_coef", 0.0f);
             material.SetFloat("_lock2daxis_coef", 1.0f);
-            material.SetFloat("_zcorrect_coef", 0.8f);
+            material.SetFloat("_zcorrect_coef", 1.0f);
         }
 
         private static bool TryDiscoverSourceFamily(Shader shader, out FamilyManifest manifest)
@@ -338,7 +338,7 @@ namespace LyumaShader
                 "        _2d_coef         (\"2D Amount\", Range(0, 1)) = 0.99\n" +
                 "        _facing_coef     (\"Facing Direction\", Range(-1, 1)) = 0.0\n" +
                 "        _lock2daxis_coef (\"Lock 2D Axis\", Range(0, 1)) = 1.0\n" +
-                "        _zcorrect_coef   (\"Squash Z (0.8 recommended)\", Float) = 0.8\n";
+                "        _zcorrect_coef   (\"Squash Z (1.0 recommended)\", Float) = 1.0\n";
             File.WriteAllText(propertiesPath, content, new UTF8Encoding(false));
         }
 
@@ -386,9 +386,16 @@ namespace LyumaShader
                     {
                         endIndex++;
                     }
-                    if(lines[endIndex].IndexOf("LyumaWaifu2dApply", StringComparison.Ordinal) < 0)
+                    if(lines[endIndex].IndexOf("LyumaWaifu2dApply(vertexInput);", StringComparison.Ordinal) >= 0)
                     {
-                        lines[endIndex] += " LyumaWaifu2dApply(vertexInput);";
+                        lines[endIndex] = lines[endIndex].Replace(
+                            "LyumaWaifu2dApply(vertexInput);",
+                            "LyumaWaifu2dApply(vertexInput, input.positionOS.xyz);");
+                        changed = true;
+                    }
+                    else if(lines[endIndex].IndexOf("LyumaWaifu2dApply", StringComparison.Ordinal) < 0)
+                    {
+                        lines[endIndex] += " LyumaWaifu2dApply(vertexInput, input.positionOS.xyz);";
                         changed = true;
                     }
                     lineIndex = endIndex;
@@ -402,7 +409,7 @@ namespace LyumaShader
                 content +=
                     "\n\n// Lyuma Waifu2d: run after the source family's object-space vertex hook.\n" +
                     "#define LIL_CUSTOM_VERTEX_WS \\\n" +
-                    "    LyumaWaifu2dApply(vertexInput);\n";
+                    "    LyumaWaifu2dApply(vertexInput, input.positionOS.xyz);\n";
                 File.WriteAllText(fallbackCustomHlslPath, content, new UTF8Encoding(false));
             }
         }
@@ -589,7 +596,7 @@ namespace LyumaShader
             materialEditor.ShaderProperty(facing, "Facing Direction / 朝向");
             materialEditor.ShaderProperty(lockAxis, "Lock 2D Axis / 锁定 2D 轴");
             materialEditor.ShaderProperty(squashZ, "Squash Z / Z 深度修正");
-            EditorGUILayout.HelpBox("Recommended Squash Z / 推荐 Z 深度修正: 0.8", MessageType.Info);
+            EditorGUILayout.HelpBox("Recommended Squash Z / 推荐 Z 深度修正: 1.0", MessageType.Info);
             EditorGUI.indentLevel--;
         }
     }

@@ -13,7 +13,7 @@ Shader "LyumaShader/StandardSimple_2d"
         _2d_coef ("Twodimensionalness", Range(0, 1)) = 0.99
         _facing_coef ("Face in Profile", Range (-1, 1)) = 0.0
         _lock2daxis_coef ("Lock 2d Axis", Range (0, 1)) = 1.0
-        _zcorrect_coef ("Squash Z (recommended=.8; 0=3d depth; 1=z-fight)", Float) = 0.8
+        _zcorrect_coef ("Squash Z (recommended=1; stable flattened depth)", Float) = 1.0
 
 		_Color("Color", Color) = (1,1,1,1)
 		_MainTex("Albedo", 2D) = "white" {}
