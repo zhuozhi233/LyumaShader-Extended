@@ -312,13 +312,13 @@ namespace LyumaShader
             EditorGUILayout.Space(8.0f);
             EditorGUILayout.LabelField("Root Bone 修复", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "用于修复衣服、头发等网格因 Root Bone 不一致导致的 Waifu2d 朝向或显示异常。" +
-                "推荐修复可通过工具还原；强制修复会处理模型内全部 Root Bone，只能立即使用 Unity Undo 还原。",
+                "非破坏修复会保存模型内全部 MA Mesh Settings 的原始设置，再将 Root Bone 统一指向 Hips，取消修复时逐个还原。" +
+                "强制修复会直接处理全部蒙皮网格和 MA Mesh Settings，只能立即使用 Unity Undo 还原。",
                 MessageType.Info
             );
 
             bool hasRootBoneRepair = modelRoot != null &&
-                modelRoot.GetComponent<LyumaWaifu2dMeshSettingsRestoreState>() != null;
+                FindRootBoneRestoreRoot(modelRoot) != null;
             string rootBoneButton = hasRootBoneRepair
                 ? "取消修复"
                 : "修复蒙皮网格异常（运行时生效-非破坏）";
@@ -971,43 +971,76 @@ namespace LyumaShader
             int undoGroup = BeginObjectUndo(useUndo, "修复 Waifu2d Root Bone");
             try
             {
-                ModularAvatarMeshSettings settings = avatarRoot.GetComponent<ModularAvatarMeshSettings>();
+                ModularAvatarMeshSettings rootSettings =
+                    avatarRoot.GetComponent<ModularAvatarMeshSettings>();
                 LyumaWaifu2dMeshSettingsRestoreState restoreState =
                     avatarRoot.GetComponent<LyumaWaifu2dMeshSettingsRestoreState>();
-
-                if(restoreState != null && restoreState.TrackedMeshSettings == null)
-                {
-                    DestroyObject(restoreState, useUndo);
-                    restoreState = null;
-                }
 
                 if(restoreState == null)
                 {
                     restoreState = AddComponent<LyumaWaifu2dMeshSettingsRestoreState>(avatarRoot, useUndo);
-                    RecordObject(restoreState, useUndo, "保存 MA Mesh Settings 原始状态");
-                    restoreState.hideFlags |= HideFlags.HideInInspector;
-                    restoreState.Capture(settings);
                 }
+                RecordObject(restoreState, useUndo, "保存 MA Mesh Settings 原始状态");
+                restoreState.hideFlags |= HideFlags.HideInInspector;
+                restoreState.MigrateLegacySnapshot();
 
-                if(settings == null)
+                if(rootSettings == null)
                 {
-                    settings = AddComponent<ModularAvatarMeshSettings>(avatarRoot, useUndo);
-                    RecordObject(restoreState, useUndo, "记录新建的 MA Mesh Settings");
-                    restoreState.TrackCreatedSettings(settings);
+                    rootSettings = AddComponent<ModularAvatarMeshSettings>(avatarRoot, useUndo);
+                    restoreState.CaptureCreated(rootSettings);
+                }
+                else
+                {
+                    restoreState.CaptureExisting(rootSettings);
                 }
 
-                RecordObject(settings, useUndo, "设置 MA Mesh Settings Root Bone");
-                settings.InheritBounds = ModularAvatarMeshSettings.InheritMode.Set;
-                settings.RootBone = CreateAvatarObjectReference(avatarRoot, hips);
-                settings.Bounds = commonBounds;
+                ModularAvatarMeshSettings[] allSettings =
+                    avatarRoot.GetComponentsInChildren<ModularAvatarMeshSettings>(true);
+                foreach(ModularAvatarMeshSettings settings in allSettings)
+                {
+                    if(settings == null || settings == rootSettings) continue;
+                    restoreState.CaptureExisting(settings);
+                }
 
-                MarkObjectDirty(settings);
+                int changedSettingsCount = 0;
+                foreach(ModularAvatarMeshSettings settings in allSettings)
+                {
+                    if(settings == null) continue;
+
+                    GameObject previousRootBone = settings.RootBone != null
+                        ? settings.RootBone.Get(settings)
+                        : null;
+                    bool convertBounds = settings != rootSettings &&
+                        previousRootBone != null &&
+                        previousRootBone.transform != hips &&
+                        settings.InheritBounds != ModularAvatarMeshSettings.InheritMode.Inherit;
+                    Bounds convertedBounds = convertBounds
+                        ? TransformBounds(
+                            settings.Bounds,
+                            hips.worldToLocalMatrix * previousRootBone.transform.localToWorldMatrix
+                        )
+                        : settings.Bounds;
+
+                    RecordObject(settings, useUndo, "设置 MA Mesh Settings Root Bone");
+                    settings.RootBone = CreateAvatarObjectReference(avatarRoot, hips);
+                    if(settings == rootSettings)
+                    {
+                        settings.InheritBounds = ModularAvatarMeshSettings.InheritMode.Set;
+                        settings.Bounds = commonBounds;
+                    }
+                    else if(convertBounds)
+                    {
+                        settings.Bounds = convertedBounds;
+                    }
+                    MarkObjectDirty(settings);
+                    changedSettingsCount++;
+                }
                 MarkObjectDirty(restoreState);
 
                 return RootBoneRepairResult.Changed(
                     string.Format(
-                        "已在 {0} 上应用 Root Bone 修复：模式为“指定”，Root Bone 为 {1}，并统一了模型 Bounds。",
-                        avatarRoot.name,
+                        "已保存并修复 {0} 个 MA Mesh Settings：Root Bone 统一为 {1}，取消修复时可逐个还原。",
+                        changedSettingsCount,
                         hips.name
                     ),
                     avatarRoot
@@ -1034,34 +1067,81 @@ namespace LyumaShader
             int undoGroup = BeginObjectUndo(useUndo, "还原 Waifu2d Root Bone 修复");
             try
             {
-                ModularAvatarMeshSettings trackedSettings = restoreState.TrackedMeshSettings;
-                if(restoreState.CreatedMeshSettings)
+                RecordObject(restoreState, useUndo, "读取 MA Mesh Settings 原始状态");
+                restoreState.MigrateLegacySnapshot();
+                var snapshots = new List<LyumaWaifu2dMeshSettingsRestoreState.MeshSettingsSnapshot>(
+                    restoreState.MeshSettingsSnapshots
+                );
+
+                int restoredCount = 0;
+                int removedCount = 0;
+                int missingCount = 0;
+                if(snapshots.Count > 0)
                 {
-                    if(trackedSettings != null) DestroyObject(trackedSettings, useUndo);
+                    foreach(LyumaWaifu2dMeshSettingsRestoreState.MeshSettingsSnapshot snapshot in snapshots)
+                    {
+                        if(snapshot == null) continue;
+                        ModularAvatarMeshSettings settings = snapshot.MeshSettings;
+                        if(settings == null)
+                        {
+                            missingCount++;
+                            continue;
+                        }
+
+                        if(snapshot.CreatedByTool)
+                        {
+                            DestroyObject(settings, useUndo);
+                            removedCount++;
+                            continue;
+                        }
+
+                        RecordObject(settings, useUndo, "恢复 MA Mesh Settings 原始状态");
+                        snapshot.Restore();
+                        MarkObjectDirty(settings);
+                        restoredCount++;
+                    }
                 }
                 else
                 {
-                    if(trackedSettings == null)
+                    // Fallback for an old restore record whose tracked component was deleted.
+                    ModularAvatarMeshSettings trackedSettings = restoreState.TrackedMeshSettings;
+                    if(restoreState.CreatedMeshSettings)
                     {
-                        ModularAvatarMeshSettings currentSettings =
-                            avatarRoot.GetComponent<ModularAvatarMeshSettings>();
-                        if(currentSettings == null)
+                        if(trackedSettings != null)
                         {
-                            trackedSettings = AddComponent<ModularAvatarMeshSettings>(avatarRoot, useUndo);
+                            DestroyObject(trackedSettings, useUndo);
+                            removedCount++;
                         }
                     }
-
-                    if(trackedSettings != null)
+                    else
                     {
-                        RecordObject(trackedSettings, useUndo, "恢复 MA Mesh Settings 原始状态");
-                        restoreState.Restore(trackedSettings);
-                        MarkObjectDirty(trackedSettings);
+                        if(trackedSettings == null)
+                        {
+                            trackedSettings = avatarRoot.GetComponent<ModularAvatarMeshSettings>();
+                            if(trackedSettings == null)
+                            {
+                                trackedSettings = AddComponent<ModularAvatarMeshSettings>(avatarRoot, useUndo);
+                            }
+                        }
+
+                        if(trackedSettings != null)
+                        {
+                            RecordObject(trackedSettings, useUndo, "恢复 MA Mesh Settings 原始状态");
+                            restoreState.Restore(trackedSettings);
+                            MarkObjectDirty(trackedSettings);
+                            restoredCount++;
+                        }
                     }
                 }
 
                 DestroyObject(restoreState, useUndo);
                 return RootBoneRepairResult.Changed(
-                    "已还原本工具对 Root 上 MA Mesh Settings 所做的修改。",
+                    string.Format(
+                        "已还原 {0} 个 MA Mesh Settings，移除 {1} 个本工具创建的组件，丢失 {2} 个组件。",
+                        restoredCount,
+                        removedCount,
+                        missingCount
+                    ),
                     avatarRoot
                 );
             }

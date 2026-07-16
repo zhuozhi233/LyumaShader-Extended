@@ -52,11 +52,10 @@ jobs:
           body: |
             VPM/VCC 软件包。
 
-            - 新增强制蒙皮网格修复，可将全部 SkinnedMeshRenderer 与 MA Mesh Settings 的 Root Bone 统一到 Humanoid Hips，并同步换算 Bounds
-            - 改进 NDMF 普通网格修复：当前没有目标时也可以预先添加，构建时没有目标不会修改网格
-            - 强制普通网格修复现在可以将拖入对象下的全部 MeshRenderer + MeshFilter 转换为 SkinnedMeshRenderer
-            - 修复材质变体在转换后仍可能被动画生成误判，导致无法加入 2D 开关动画的问题
-            - VCC 包信息新增更新日志入口，可直接打开 GitHub Releases
+            - 修复模型内存在多个 MA Mesh Settings 且部分 Root Bone 不是 Humanoid Hips 时，Waifu2d 朝向或显示异常的问题
+            - 非破坏修复现在会统一处理全部 MA Mesh Settings，并逐个保存原 Root Bone、Bounds 和 Bounds 模式以便取消时还原
+            - 取消修复时会移除工具在 Root 上创建的 MA Mesh Settings，并兼容旧版本的单组件恢复记录
+            - Root Bone 坐标系变化时同步换算显式 Bounds，减少错误裁剪
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
