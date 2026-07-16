@@ -18,9 +18,7 @@ namespace LyumaShader
             if(renderer == null) return false;
             foreach(Material material in renderer.sharedMaterials)
             {
-                if(material != null && material.shader != null &&
-                   material.HasProperty("_2d_coef") &&
-                   material.shader.name.IndexOf("LyumaShader/Waifu2d", StringComparison.OrdinalIgnoreCase) >= 0)
+                if(IsWaifu2dMaterial(material))
                     return true;
             }
             return false;
@@ -40,15 +38,46 @@ namespace LyumaShader
                 bool usesWaifu2d = false;
                 foreach(Material material in associated.GetCandidateMaterials(renderer))
                 {
-                    if(material != null && material.shader != null &&
-                       material.HasProperty("_2d_coef") &&
-                       material.shader.name.IndexOf("LyumaShader/Waifu2d", StringComparison.OrdinalIgnoreCase) >= 0)
+                    if(IsWaifu2dMaterial(material))
                     {
                         usesWaifu2d = true;
                         break;
                     }
                 }
                 if(usesWaifu2d) result.Add(renderer);
+            }
+            return result;
+        }
+
+        private static bool IsWaifu2dMaterial(Material material)
+        {
+            if(material == null) return false;
+            var visited = new HashSet<Material>();
+            Material current = material;
+            while(current != null && visited.Add(current))
+            {
+                if(current.shader != null && current.HasProperty("_2d_coef") &&
+                   current.shader.name.IndexOf(
+                       "LyumaShader/Waifu2d",
+                       StringComparison.OrdinalIgnoreCase
+                   ) >= 0)
+                {
+                    return true;
+                }
+                current = current.parent;
+            }
+            return false;
+        }
+
+        internal static List<MeshRenderer> FindAllTargets(GameObject root)
+        {
+            var result = new List<MeshRenderer>();
+            if(root == null) return result;
+            foreach(MeshRenderer renderer in root.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                if(renderer == null) continue;
+                MeshFilter filter = renderer.GetComponent<MeshFilter>();
+                if(filter != null && filter.sharedMesh != null) result.Add(renderer);
             }
             return result;
         }
