@@ -53,6 +53,14 @@ static float3 yAxis = float3(0,1,0);
 static float3 xAxis = float3(cameraToObj2D.y,0,cameraToObj2D.x);
 static float3 zAxis = float3(-cameraToObj2D.x,0,cameraToObj2D.y);
 
+// The legacy matrix path clears the third coordinate after multiplying by
+// transpose(myVMat). Its actual flattening normal is therefore the third
+// column of myVMat, not zAxis (the third row). These only coincide at a few
+// cardinal view angles; using zAxis makes the flattened plane rotate away
+// from the render camera at diagonal angles, which is especially visible in
+// VRChat and mirrors.
+static float3 flattenNormal = float3(xAxis.z, yAxis.z, zAxis.z);
+
 // world in camera space: [xAxis yAxis zAxis cameraPos]
 static float4x4 myVMat = float4x4(
 		xAxis.x, xAxis.y, xAxis.z, objectPos.x,
@@ -91,7 +99,8 @@ float4 waifu_computeWorldFlatWorldPos(float4 objToWorld) {
     // translation. At world coordinates around 1,000-10,000 that cancellation
     // loses the small depth differences which keep a flattened mesh stable.
     float3 worldOffset = objToWorld.xyz - objectPos;
-    float3 flattenedWorldOffset = worldOffset - zAxis * dot(worldOffset, zAxis);
+    float3 flattenedWorldOffset = worldOffset
+        - flattenNormal * dot(worldOffset, flattenNormal);
     return float4(objectPos + flattenedWorldOffset, objToWorld.w);
 }
 
@@ -101,7 +110,7 @@ float3 waifu_computeVertexWorldOffset(float4 inVertex) {
     // introduced and subtracted again.
     float3 originalWorldOffset = mul((float3x3)unity_ObjectToWorld, inVertex.xyz);
     float3 flattenedWorldOffset = originalWorldOffset
-        - zAxis * dot(originalWorldOffset, zAxis);
+        - flattenNormal * dot(originalWorldOffset, flattenNormal);
     return lerp(originalWorldOffset, flattenedWorldOffset, waifu_coef);
 }
 
