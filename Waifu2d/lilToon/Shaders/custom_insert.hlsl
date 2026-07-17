@@ -131,6 +131,39 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
                 * depthReferenceData.y;
         #endif
 
+        #if defined(LIL_FAKESHADOW) && !defined(LIL_HDRP)
+            // FakeShadow applies its light-direction offset after this custom
+            // position hook. If that full 3D offset is left unchanged while the
+            // hair and face depth are flattened, its depth component can become
+            // larger than their remaining separation and expose the whole hair
+            // mesh through the face stencil. Pre-compensate the original shift so
+            // the pass ultimately uses the same flattened offset as the geometry.
+            float3 fakeShadowLightDirection = normalize(
+                lilGetLightDirection()
+                + length(_FakeShadowVector.xyz)
+                    * normalize(mul((float3x3)LIL_MATRIX_M, _FakeShadowVector.xyz)));
+            float3 originalFakeShadowOffsetWS =
+                fakeShadowLightDirection * _FakeShadowVector.w;
+            float3 flattenedFakeShadowOffsetWS = originalFakeShadowOffsetWS
+                - flattenNormal * dot(originalFakeShadowOffsetWS, flattenNormal);
+            float3 adjustedFakeShadowOffsetWS = lerp(
+                originalFakeShadowOffsetWS,
+                flattenedFakeShadowOffsetWS,
+                waifu_coef);
+            float4 originalFakeShadowShiftCS = mul(
+                LIL_MATRIX_VP,
+                float4(originalFakeShadowOffsetWS, 0.0));
+            float4 adjustedFakeShadowShiftCS = mul(
+                LIL_MATRIX_VP,
+                float4(adjustedFakeShadowOffsetWS, 0.0));
+
+            // lil_pass_forward_fakeshadow subtracts originalFakeShadowShiftCS
+            // immediately after this hook. Adding the difference here makes the
+            // final result subtract adjustedFakeShadowShiftCS instead.
+            vertexInput.positionCS +=
+                originalFakeShadowShiftCS - adjustedFakeShadowShiftCS;
+        #endif
+
         vertexInput.positionSS = lilTransformCStoSS(vertexInput.positionCS);
     }
 

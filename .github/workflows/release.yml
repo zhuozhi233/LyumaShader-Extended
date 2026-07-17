@@ -52,9 +52,8 @@ jobs:
           body: |
             VPM/VCC 软件包。
 
-            - 修复 lilToon 开启轮廓 Z Bias 后，摄像机贴近模型时可能显示大片异常轮廓的问题
-            - Waifu2d 启用时会在透视相机进入近距离安全区后暂时关闭轮廓 Z Bias，离开后恢复原效果
-            - 2D 强度为 0 时保持 lilToon 原本的轮廓 Z Bias 行为
+            - 修复 lilToon FakeShadow 在 Waifu2d 压平后仍保留完整深度位移，可能导致头发或阴影网格穿过面部模板的问题
+            - FakeShadow 位移会随 2D 强度压平到与模型相同的平面，2D 强度为 0 时保持原有行为
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
