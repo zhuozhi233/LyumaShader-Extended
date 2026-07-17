@@ -13,13 +13,16 @@
 
 void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput, float3 positionOS)
 {
-    // Keep the clip-space depth reference in a field that will be recomputed below.
-    // positionSS.x temporarily carries an outline-only NDC depth offset, y carries
-    // its near-clip fade, and z/w carry Lyuma's depth-squash depth reference.
+    // Keep the depth data in a field that will be recomputed below. Outline
+    // passes store the original unbiased NDC depth, the original NDC Z Bias,
+    // the actual view-space Z displacement, and a shared safety switch.
+    // Other passes retain Lyuma's original clip-space depth reference in z/w.
     float4 originalPositionCS = vertexInput.positionCS;
     float4 depthReferenceCS = originalPositionCS;
+    float originalDepthNDC = 0.0;
     float outlineZBiasNDC = 0.0;
-    float outlineZBiasNearFade = 1.0;
+    float outlineZBiasVSZ = 0.0;
+    float outlineZBiasSafeFactor = 1.0;
 
     float3 stableWorldOffset;
 #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
@@ -40,8 +43,9 @@ void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput, float3 positio
             : mul((float3x3)LIL_MATRIX_I_M, LIL_MATRIX_V._m20_m21_m22);
         float3 preBiasPositionOS = biasedPositionOS + normalize(outlineViewDirectionOS) * _OutlineZBias;
         float4 preBiasPositionCS = lilGetVertexPositionInputs(preBiasPositionOS).positionCS;
+        originalDepthNDC = preBiasPositionCS.z / nonzeroify(preBiasPositionCS.w);
         outlineZBiasNDC = originalPositionCS.z / nonzeroify(originalPositionCS.w)
-            - preBiasPositionCS.z / nonzeroify(preBiasPositionCS.w);
+            - originalDepthNDC;
         depthReferenceCS = preBiasPositionCS;
         stableWorldOffset = waifu_computeVertexWorldOffset(float4(preBiasPositionOS, 1.0));
 
@@ -51,6 +55,7 @@ void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput, float3 positio
         fullOutlineBiasWS = mul(
             (float3x3)unity_ObjectToWorld,
             positionOS - preBiasPositionOS);
+        outlineZBiasVSZ = mul((float3x3)LIL_MATRIX_V, fullOutlineBiasWS).z;
         remainingOutlineBiasWS = fullOutlineBiasWS * (1.0 - waifu_coef);
     #else
         stableWorldOffset = waifu_computeVertexWorldOffset(float4(positionOS, 1.0));
@@ -68,30 +73,66 @@ void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput, float3 positio
     #endif
     #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
         // Very close to the camera, even a partially retained Z Bias can move a
-        // large outline triangle back into the visible frustum. Use a binary
-        // safety cutoff instead of interpolating the bias: partial bias creates
-        // exactly the large solid patches this guard is intended to prevent.
+        // large outline triangle back into the visible frustum. The cutoff must
+        // be uniform for the whole renderer: a per-vertex cutoff is interpolated
+        // across the triangle and can stretch its back-facing side into a large
+        // solid patch.
         if(lilIsPerspective() && waifu_coef > 1.0e-6)
         {
-            float3 unbiasedPositionVS = objectOriginVS
-                + mul((float3x3)LIL_MATRIX_V, stableWorldOffset);
-            float viewDepth = max(0.0, -unbiasedPositionVS.z);
+            // abs() makes approaching the flattened plane from its front or back
+            // use the same safety rule. Object-space scale is also evaluated
+            // uniformly instead of deriving the threshold from each vertex's
+            // view direction.
+            float viewDepth = abs(objectOriginVS.z);
             float nearClip = max(0.00001, _ProjectionParams.y);
-            float biasViewDepth = abs(mul((float3x3)LIL_MATRIX_V, fullOutlineBiasWS).z);
-            float safeDepth = nearClip + max(0.15, biasViewDepth * 4.0);
-            outlineZBiasNearFade = step(safeDepth, viewDepth);
+            float maxObjectScale = max(
+                length(mul((float3x3)unity_ObjectToWorld, float3(1.0, 0.0, 0.0))),
+                max(
+                    length(mul((float3x3)unity_ObjectToWorld, float3(0.0, 1.0, 0.0))),
+                    length(mul((float3x3)unity_ObjectToWorld, float3(0.0, 0.0, 1.0)))));
+            float biasWorldDistance = abs(_OutlineZBias) * maxObjectScale;
+            float safeDepth = nearClip + max(0.15, biasWorldDistance * 4.0);
+            outlineZBiasSafeFactor = step(safeDepth, viewDepth);
         }
 
-        stableWorldOffset += remainingOutlineBiasWS * outlineZBiasNearFade;
+        // A two-sided main surface paired with lilToon's front-culled outline
+        // reverses which outline faces are exposed when a flattened model is
+        // viewed from behind. Any non-zero depth separation can then reveal a
+        // large interior outline patch. In 2D, make rear views behave exactly
+        // like Outline Z Bias = 0 while preserving the front-view setting.
+        if(waifu_coef > 0.1 && _Cull == 0)
+        {
+            // Switch a little before the exact side-on boundary. At zero, a
+            // camera or mirror moving across the boundary can leave one frame
+            // where an unstable rear shell is still visible. Normalize in the
+            // horizontal plane so the margin is angular and distance-independent.
+            float cameraHorizontalDistance = max(
+                length(cameraPosInObjectSpace.xz),
+                1.0e-5);
+            float cameraFacingSide = dot(
+                cameraPosInObjectSpace,
+                targetCameraPosFacingVec) / cameraHorizontalDistance;
+            outlineZBiasSafeFactor *= step(0.1, cameraFacingSide);
+        }
+
+        stableWorldOffset += remainingOutlineBiasWS * outlineZBiasSafeFactor;
     #endif
 
     vertexInput.positionWS = lilToRelativePositionWS(objectPos + stableWorldOffset);
     vertexInput.positionVS = objectOriginVS + mul((float3x3)LIL_MATRIX_V, stableWorldOffset);
-    vertexInput.positionSS = float4(
-        outlineZBiasNDC,
-        outlineZBiasNearFade,
-        depthReferenceCS.z,
-        depthReferenceCS.w);
+    #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
+        vertexInput.positionSS = float4(
+            originalDepthNDC,
+            outlineZBiasNDC,
+            outlineZBiasVSZ,
+            outlineZBiasSafeFactor);
+    #else
+        vertexInput.positionSS = float4(
+            0.0,
+            1.0,
+            depthReferenceCS.z,
+            depthReferenceCS.w);
+    #endif
 }
 
 // Compatibility overload for custom shader families generated by older package
@@ -105,7 +146,6 @@ void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput)
 lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionInputs vertexInput)
 {
     float4 depthReferenceData = vertexInput.positionSS;
-    float outlineZBiasNDC = depthReferenceData.x;
     float3 stablePositionVS = vertexInput.positionVS;
     vertexInput.positionVS = stablePositionVS;
     vertexInput.positionCS = lilTransformVStoCS(stablePositionVS);
@@ -113,22 +153,42 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
 
     if(waifu_coef > 1.0e-6)
     {
-        float correctedZ = sign(depthReferenceData.w * depthReferenceData.z * vertexInput.positionCS.w)
-            * max(0.00001, abs(depthReferenceData.z))
-            * max(0.00001, abs(vertexInput.positionCS.w))
-            / max(0.00001, abs(depthReferenceData.w));
-        vertexInput.positionCS.z = lerp(correctedZ, vertexInput.positionCS.z, _zcorrect_coef);
-
         #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
-            // The remaining physical bias shrinks with 2D Amount and contributes
-            // through the flattened-depth side of the blend. Add only the missing
-            // portion in clip space so the depth separation stays stable without
-            // restoring any world-space thickness.
-            float missingOutlineBias = 1.0 - _zcorrect_coef * (1.0 - waifu_coef);
-            vertexInput.positionCS.z += outlineZBiasNDC
-                * vertexInput.positionCS.w
-                * missingOutlineBias
-                * depthReferenceData.y;
+            float originalUnbiasedNDC = depthReferenceData.x;
+            float originalBiasNDC = depthReferenceData.y;
+            float outlineBiasVSZ = depthReferenceData.z;
+            float outlineBiasSafeFactor = depthReferenceData.w;
+
+            // stablePositionVS already retains the physical part of Z Bias that
+            // remains at the current 2D Amount. Project only the removed part at
+            // the new flattened depth, then use that projected NDC depth without
+            // restoring any view-space X/Y movement or visible thickness.
+            float3 reprojectedBiasPositionVS = stablePositionVS;
+            reprojectedBiasPositionVS.z +=
+                outlineBiasVSZ * waifu_coef * outlineBiasSafeFactor;
+            float4 reprojectedBiasPositionCS =
+                lilTransformVStoCS(reprojectedBiasPositionVS);
+            float reprojectedBiasedNDC =
+                reprojectedBiasPositionCS.z
+                / nonzeroify(reprojectedBiasPositionCS.w);
+
+            // zcorrect = 0 keeps lilToon's original biased NDC depth.
+            // zcorrect = 1 uses the flattened position with Z Bias reprojected
+            // at that position. The near-clip switch disables both endpoints.
+            float originalBiasedNDC = originalUnbiasedNDC
+                + originalBiasNDC * outlineBiasSafeFactor;
+            float correctedBiasedNDC = lerp(
+                originalBiasedNDC,
+                reprojectedBiasedNDC,
+                _zcorrect_coef);
+            vertexInput.positionCS.z =
+                correctedBiasedNDC * vertexInput.positionCS.w;
+        #else
+            float correctedZ = sign(depthReferenceData.w * depthReferenceData.z * vertexInput.positionCS.w)
+                * max(0.00001, abs(depthReferenceData.z))
+                * max(0.00001, abs(vertexInput.positionCS.w))
+                / max(0.00001, abs(depthReferenceData.w));
+            vertexInput.positionCS.z = lerp(correctedZ, vertexInput.positionCS.z, _zcorrect_coef);
         #endif
 
         #if defined(LIL_FAKESHADOW) && !defined(LIL_HDRP)
@@ -162,6 +222,24 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
             // final result subtract adjustedFakeShadowShiftCS instead.
             vertexInput.positionCS +=
                 originalFakeShadowShiftCS - adjustedFakeShadowShiftCS;
+        #endif
+
+        #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
+            // Flattening a two-sided surface makes its front and rear shells
+            // coplanar. From the model's rear, lilToon's front-culled outline can
+            // then expose interior triangles; width masks, fixed width, lighting,
+            // ZTest, ZWrite, and Z Bias only change the shape or intensity of the
+            // resulting flashing patches. Cull the rear outline as one uniform
+            // renderer-level decision while leaving the main two-sided surface
+            // untouched.
+            if(waifu_coef > 0.1
+                && _Cull == 0
+                && dot(cameraPosInObjectSpace, targetCameraPosFacingVec)
+                    < length(cameraPosInObjectSpace.xz) * 0.1)
+            {
+                // Outside both D3D's [0,w] and OpenGL's [-w,w] clip ranges.
+                vertexInput.positionCS = float4(0.0, 0.0, -2.0, 1.0);
+            }
         #endif
 
         vertexInput.positionSS = lilTransformCStoSS(vertexInput.positionCS);
