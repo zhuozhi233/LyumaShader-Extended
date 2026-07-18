@@ -23,6 +23,9 @@ namespace LyumaShader
         private const string InsertBlockFileName = "lilCustomShaderInsert.lilblock";
         private const string CustomHlslFileName = "custom.hlsl";
         private const string BridgeFileName = "lyuma_waifu2d_bridge.hlsl";
+        internal const string MotchiriContactOffsetProperty =
+            "_lyuma_motchiri_contact_offset_os";
+        private const int GeneratorVersion = 8;
 
         private static readonly Dictionary<int, FamilyManifest> SourceFamilyCache =
             new Dictionary<int, FamilyManifest>();
@@ -39,6 +42,7 @@ namespace LyumaShader
             public string generatedFamilyName;
             public string originalEditorName;
             public string sourceGuid;
+            public int generatorVersion;
         }
 
         internal static bool IsSupported(Shader shader)
@@ -104,6 +108,13 @@ namespace LyumaShader
             material.SetFloat("_facing_coef", 0.0f);
             material.SetFloat("_lock2daxis_coef", 1.0f);
             material.SetFloat("_zcorrect_coef", 1.0f);
+            if(material.HasProperty(MotchiriContactOffsetProperty))
+            {
+                material.SetVector(
+                    MotchiriContactOffsetProperty,
+                    Vector4.zero
+                );
+            }
         }
 
         private static bool TryDiscoverSourceFamily(Shader shader, out FamilyManifest manifest)
@@ -161,7 +172,8 @@ namespace LyumaShader
                 sourceFamilyName = familyName,
                 generatedFamilyName = generatedFamilyName,
                 originalEditorName = string.IsNullOrEmpty(editorName) ? "lilToon.lilToonInspector" : editorName,
-                sourceGuid = sourceGuid
+                sourceGuid = sourceGuid,
+                generatorVersion = GeneratorVersion
             };
             SourceFamilyCache[shaderId] = manifest;
             return true;
@@ -176,7 +188,8 @@ namespace LyumaShader
                 FamilyManifest existing = ReadManifest(manifestPath);
                 if(existing != null &&
                     PathsEqual(existing.sourceFolder, sourceManifest.sourceFolder) &&
-                    existing.sourceGuid == sourceManifest.sourceGuid)
+                    existing.sourceGuid == sourceManifest.sourceGuid &&
+                    existing.generatorVersion == GeneratorVersion)
                 {
                     return existing;
                 }
@@ -201,7 +214,14 @@ namespace LyumaShader
                 AppendWaifu2dProperties(generatedPropertiesPath);
                 WriteBridge(sourceManifest.outputFolder + "/" + BridgeFileName);
                 AppendBridgeInclude(generatedInsertPath);
-                AppendVertexHook(sourceManifest.outputFolder, generatedCustomHlslPath);
+                if(IsMotchiriFamily(sourceManifest))
+                {
+                    AppendPreservedObjectSpaceVertexHooks(sourceManifest.outputFolder);
+                }
+                else
+                {
+                    AppendVertexHook(sourceManifest.outputFolder, generatedCustomHlslPath);
+                }
 
                 File.WriteAllText(
                     manifestPath,
@@ -338,7 +358,9 @@ namespace LyumaShader
                 "        _2d_coef         (\"2D Amount\", Range(0, 1)) = 0.99\n" +
                 "        _facing_coef     (\"Facing Direction\", Range(-1, 1)) = 0.0\n" +
                 "        _lock2daxis_coef (\"Lock 2D Axis\", Range(0, 1)) = 1.0\n" +
-                "        _zcorrect_coef   (\"Squash Z (1.0 recommended)\", Float) = 1.0\n";
+                "        _zcorrect_coef   (\"Squash Z (1.0 recommended)\", Float) = 1.0\n" +
+                "        [HideInInspector] _lyuma_custom_logic_2d (\"Keep Custom Vertex Logic In 2D\", Float) = 1.0\n" +
+                "        [HideInInspector] _lyuma_motchiri_contact_offset_os (\"Motchiri Contact Coordinate Offset\", Vector) = (0,0,0,0)\n";
             File.WriteAllText(propertiesPath, content, new UTF8Encoding(false));
         }
 
@@ -355,6 +377,8 @@ namespace LyumaShader
                 "uniform float _facing_coef;\n" +
                 "uniform float _lock2daxis_coef;\n" +
                 "uniform float _zcorrect_coef;\n" +
+                "uniform float _lyuma_custom_logic_2d;\n" +
+                "uniform float4 _lyuma_motchiri_contact_offset_os;\n" +
                 "#include \"" + shaderAssetFolder.Replace('\\', '/') + "/custom_insert.hlsl\"\n";
             File.WriteAllText(bridgePath, content, new UTF8Encoding(false));
         }
@@ -412,6 +436,170 @@ namespace LyumaShader
                     "    LyumaWaifu2dApply(vertexInput, input.positionOS.xyz);\n";
                 File.WriteAllText(fallbackCustomHlslPath, content, new UTF8Encoding(false));
             }
+        }
+
+        private static bool IsMotchiriFamily(FamilyManifest manifest)
+        {
+            return manifest != null &&
+                string.Equals(manifest.sourceFamilyName, "motchiri", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Motchiri performs its soft-body displacement in LIL_CUSTOM_VERTEX_OS.
+        /// Flattening the already-deformed position removes almost all front/back
+        /// indentation. Record only that displacement in otherwise-unused vertex
+        /// UV channels and restore its removed component after Waifu2d.
+        /// </summary>
+        private static void AppendPreservedObjectSpaceVertexHooks(string outputFolder)
+        {
+            bool patchedAny = false;
+            foreach(string hlslPath in Directory.GetFiles(outputFolder, "*.hlsl", SearchOption.AllDirectories))
+            {
+                if(hlslPath.EndsWith(BridgeFileName, StringComparison.OrdinalIgnoreCase)) continue;
+                if(!TryCaptureObjectSpaceVertexDelta(hlslPath)) continue;
+
+                string content = File.ReadAllText(hlslPath);
+                if(Regex.IsMatch(content, @"(?m)^\s*#\s*define\s+LIL_CUSTOM_VERTEX_WS\b"))
+                {
+                    throw new InvalidDataException(
+                        "Motchiri compatibility expected no existing LIL_CUSTOM_VERTEX_WS in " + hlslPath);
+                }
+
+                content +=
+                    "\n\n// Lyuma Waifu2d: preserve Motchiri's local soft-body displacement.\n" +
+                    "#define LIL_CUSTOM_VERTEX_WS \\\n" +
+                    "    LyumaWaifu2dApplyPreservingCustomOffset(vertexInput, input.positionOS.xyz, float3(input.uv6, input.uv7.x));\n";
+                File.WriteAllText(hlslPath, content, new UTF8Encoding(false));
+                patchedAny = true;
+            }
+
+            if(!patchedAny)
+            {
+                throw new InvalidDataException(
+                    "Could not locate Motchiri's LIL_CUSTOM_VERTEX_OS hook in " + outputFolder);
+            }
+        }
+
+        private static bool TryCaptureObjectSpaceVertexDelta(string hlslPath)
+        {
+            var lines = new List<string>(File.ReadAllLines(hlslPath));
+            int macroIndex = FindActiveDefine(lines, "LIL_CUSTOM_VERTEX_OS");
+            if(macroIndex < 0) return false;
+
+            ActivateRequiredVertexUv(lines, "LIL_REQUIRE_APP_TEXCOORD6", macroIndex);
+            ActivateRequiredVertexUv(lines, "LIL_REQUIRE_APP_TEXCOORD7", macroIndex);
+            macroIndex = FindActiveDefine(lines, "LIL_CUSTOM_VERTEX_OS");
+
+            lines.Insert(
+                macroIndex + 1,
+                "    float3 lyumaWaifu2dOriginalPositionOS = positionOS.xyz;\\");
+            lines.Insert(
+                macroIndex + 2,
+                "    float3 lyumaWaifu2dOriginalNormalOS = input.normalOS;\\");
+
+            int compressionIndex = lines.FindIndex(
+                macroIndex + 1,
+                line => line.Contains("ParametersCompression()")
+            );
+            int offsetIndex = lines.FindIndex(
+                macroIndex + 1,
+                line => line.Contains("float3 offset") &&
+                    line.Contains("ContactStrengthToOffset")
+            );
+            int normalIndex = lines.FindIndex(
+                macroIndex + 1,
+                line => line.Contains("input.normalOS") &&
+                    line.Contains("CalcNewNormal")
+            );
+            if(compressionIndex < 0 || offsetIndex < 0 || normalIndex < 0)
+            {
+                throw new InvalidDataException(
+                    "Unsupported Motchiri vertex logic in " + hlslPath);
+            }
+
+            lines.Insert(
+                compressionIndex + 1,
+                "    for(int lyumaWaifu2dContactIndex = 0; lyumaWaifu2dContactIndex < 11; lyumaWaifu2dContactIndex++) _ContactPosition[lyumaWaifu2dContactIndex] += _lyuma_motchiri_contact_offset_os.xyz;\\");
+
+            offsetIndex = lines.FindIndex(
+                compressionIndex + 2,
+                line => line.Contains("float3 offset") &&
+                    line.Contains("ContactStrengthToOffset")
+            );
+            lines.Insert(
+                offsetIndex + 1,
+                "    float lyumaWaifu2dCustomLogicWeight = max(1.0 - step(0.1, saturate(_2d_coef)), step(0.5, saturate(_lyuma_custom_logic_2d)));\\");
+            lines.Insert(
+                offsetIndex + 2,
+                "    contactStrength *= lyumaWaifu2dCustomLogicWeight;\\");
+            lines.Insert(
+                offsetIndex + 3,
+                "    offset *= lyumaWaifu2dCustomLogicWeight;\\");
+
+            normalIndex = lines.FindIndex(
+                offsetIndex + 4,
+                line => line.Contains("input.normalOS") &&
+                    line.Contains("CalcNewNormal")
+            );
+            lines.Insert(
+                normalIndex + 1,
+                "    input.normalOS = lerp(lyumaWaifu2dOriginalNormalOS, input.normalOS, lyumaWaifu2dCustomLogicWeight);\\");
+
+            int terminatorIndex = macroIndex;
+            while(terminatorIndex < lines.Count - 1 &&
+                lines[terminatorIndex].TrimEnd().EndsWith("\\", StringComparison.Ordinal))
+            {
+                terminatorIndex++;
+            }
+            if(terminatorIndex >= lines.Count ||
+                !string.IsNullOrWhiteSpace(lines[terminatorIndex]))
+            {
+                throw new InvalidDataException(
+                    "Unsupported LIL_CUSTOM_VERTEX_OS layout in " + hlslPath);
+            }
+
+            lines.Insert(
+                terminatorIndex,
+                "    float3 lyumaWaifu2dCustomDeltaOS = positionOS.xyz - lyumaWaifu2dOriginalPositionOS;\\");
+            lines.Insert(
+                terminatorIndex + 1,
+                "    input.uv6 = lyumaWaifu2dCustomDeltaOS.xy;\\");
+            lines.Insert(
+                terminatorIndex + 2,
+                "    input.uv7.x = lyumaWaifu2dCustomDeltaOS.z;\\");
+
+            File.WriteAllLines(hlslPath, lines, new UTF8Encoding(false));
+            return true;
+        }
+
+        private static int FindActiveDefine(List<string> lines, string defineName)
+        {
+            var pattern = new Regex(
+                @"^\s*#\s*define\s+" + Regex.Escape(defineName) + @"\b");
+            for(int index = 0; index < lines.Count; index++)
+            {
+                if(pattern.IsMatch(lines[index])) return index;
+            }
+            return -1;
+        }
+
+        private static void ActivateRequiredVertexUv(List<string> lines, string defineName, int insertBefore)
+        {
+            var activePattern = new Regex(
+                @"^\s*#\s*define\s+" + Regex.Escape(defineName) + @"\b");
+            var commentedPattern = new Regex(
+                @"^(\s*)//\s*#\s*define\s+" + Regex.Escape(defineName) + @"\b");
+
+            for(int index = 0; index < lines.Count; index++)
+            {
+                if(activePattern.IsMatch(lines[index])) return;
+                Match commented = commentedPattern.Match(lines[index]);
+                if(!commented.Success) continue;
+                lines[index] = commented.Groups[1].Value + "#define " + defineName;
+                return;
+            }
+
+            lines.Insert(insertBefore, "#define " + defineName);
         }
 
         private static void CopyDirectoryWithoutMeta(string sourceFolder, string destinationFolder)

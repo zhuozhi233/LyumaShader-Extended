@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using nadena.dev.ndmf;
+using nadena.dev.ndmf.animator;
 using nadena.dev.ndmf.fluent;
 using UnityEngine;
 
@@ -16,16 +17,46 @@ namespace LyumaShader
         {
             InPhase(BuildPhase.Transforming)
                 .BeforePlugin("nadena.dev.modular-avatar")
-                .Run("Convert Waifu2d static meshes", context =>
+                .WithRequiredExtension(typeof(AnimatorServicesContext), sequence =>
                 {
-                    foreach(LyumaWaifu2dStaticMeshConverter marker in
-                            context.AvatarRootObject.GetComponentsInChildren<LyumaWaifu2dStaticMeshConverter>(true))
+                    sequence.Run("Convert Waifu2d static meshes", context =>
                     {
-                        Transform hips = Waifu2dStaticMeshConversion.FindHips(marker.gameObject);
-                        foreach(MeshRenderer renderer in Waifu2dStaticMeshConversion.FindTargets(marker.gameObject))
-                            Waifu2dStaticMeshConversion.Convert(renderer, hips, false, false);
-                        Object.DestroyImmediate(marker);
-                    }
+                        AnimationIndex animationIndex =
+                            context.Extension<AnimatorServicesContext>()
+                                .AnimationIndex;
+                        foreach(LyumaWaifu2dStaticMeshConverter marker in
+                            context.AvatarRootObject
+                                .GetComponentsInChildren<LyumaWaifu2dStaticMeshConverter>(true))
+                        {
+                            Transform hips =
+                                Waifu2dStaticMeshConversion.FindHips(
+                                    marker.gameObject
+                                );
+                            foreach(MeshRenderer renderer in
+                                Waifu2dStaticMeshConversion.FindTargets(
+                                    marker.gameObject
+                                ))
+                            {
+                                SkinnedMeshRenderer converted =
+                                    Waifu2dStaticMeshConversion.Convert(
+                                    renderer,
+                                    hips,
+                                    false,
+                                    false,
+                                    animationIndex,
+                                    context.AvatarRootObject
+                                );
+                                if(converted != null &&
+                                    converted.sharedMesh != null)
+                                {
+                                    context.AssetSaver.SaveAsset(
+                                        converted.sharedMesh
+                                    );
+                                }
+                            }
+                            Object.DestroyImmediate(marker);
+                        }
+                    });
                 });
         }
     }

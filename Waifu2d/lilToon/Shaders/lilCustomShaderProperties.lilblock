@@ -5,3 +5,4 @@
         _facing_coef      ("Facing Direction", Range(-1, 1)) = 0.0
         _lock2daxis_coef  ("Lock 2D Axis", Range(0, 1)) = 1.0
         _zcorrect_coef    ("Squash Z (1.0 recommended)", Float) = 1.0
+        [HideInInspector] _lyuma_custom_logic_2d ("Keep Custom Vertex Logic In 2D", Float) = 1.0

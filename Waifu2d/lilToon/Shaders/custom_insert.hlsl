@@ -120,6 +120,30 @@ void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput, float3 positio
 
     vertexInput.positionWS = lilToRelativePositionWS(objectPos + stableWorldOffset);
     vertexInput.positionVS = objectOriginVS + mul((float3x3)LIL_MATRIX_V, stableWorldOffset);
+    if(lilIsPerspective() && waifu_coef > 0.1)
+    {
+        // A nearly flat renderer can pass completely through the camera before
+        // lilToon's regular clipping canceller runs. Its front surface then
+        // disappears while a deeper renderer remains visible. Keep the final
+        // 2D plane just behind the camera near plane without changing its X/Y
+        // projection or reducing the requested 2D amount.
+        float safeNearDepth = max(
+            0.005,
+            max(0.00001, _ProjectionParams.y) * 1.05);
+        float clampedViewZ = min(
+            vertexInput.positionVS.z,
+            -safeNearDepth);
+        float viewZCorrection =
+            clampedViewZ - vertexInput.positionVS.z;
+        if(viewZCorrection < 0.0)
+        {
+            float3 viewCorrection =
+                float3(0.0, 0.0, viewZCorrection);
+            vertexInput.positionVS.z = clampedViewZ;
+            vertexInput.positionWS +=
+                mul((float3x3)UNITY_MATRIX_I_V, viewCorrection);
+        }
+    }
     #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
         vertexInput.positionSS = float4(
             originalDepthNDC,
@@ -141,6 +165,36 @@ void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput, float3 positio
 void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput)
 {
     LyumaWaifu2dApply(vertexInput, lilTransformWStoOS(vertexInput.positionWS));
+}
+
+// Motchiri deforms vertices before the world-space custom hook. Pass its
+// deformed position through Waifu2d so the contact response, modified normals,
+// and fragment effect are preserved, but its displacement is flattened with the
+// rest of the mesh. Restoring the removed depth after flattening would give a
+// 2D renderer real front/back thickness again; at close range that perspective
+// difference exposes mouth and tongue geometry through the face.
+void LyumaWaifu2dApplyPreservingCustomOffset(
+    inout lilVertexPositionInputs vertexInput,
+    float3 deformedPositionOS,
+    float3 customDeltaOS)
+{
+    // At the 3D endpoint lilToon has already built vertexInput from Motchiri's
+    // deformed input.positionOS. Leaving it completely untouched guarantees the
+    // original custom shader result instead of reconstructing an equivalent
+    // value through Waifu2d's relative-position path.
+    if(waifu_coef <= 1.0e-6)
+    {
+        return;
+    }
+
+    float3 basePositionOS = deformedPositionOS - customDeltaOS;
+    float keepCustomLogic = lerp(
+        1.0,
+        saturate(_lyuma_custom_logic_2d),
+        waifu_coef);
+    customDeltaOS *= keepCustomLogic;
+    deformedPositionOS = basePositionOS + customDeltaOS;
+    LyumaWaifu2dApply(vertexInput, deformedPositionOS);
 }
 
 lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionInputs vertexInput)

@@ -2,6 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using nadena.dev.ndmf;
+using nadena.dev.ndmf.animator;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -104,7 +107,9 @@ namespace LyumaShader
             MeshRenderer source,
             Transform hips,
             bool persistentMesh,
-            bool useUndo
+            bool useUndo,
+            AnimationIndex animationIndex = null,
+            GameObject avatarRoot = null
         )
         {
             if(source == null) return null;
@@ -114,6 +119,13 @@ namespace LyumaShader
             // Adding a SkinnedMeshRenderer can immediately destroy the MeshRenderer because
             // Unity only permits one Renderer on a GameObject. Cache everything first.
             GameObject go = source.gameObject;
+            ObjectReference sourceReference = ObjectRegistry.GetReference(source);
+            string animationPath = avatarRoot != null
+                ? AnimationUtility.CalculateTransformPath(
+                    source.transform,
+                    avatarRoot.transform
+                )
+                : null;
             Material[] sharedMaterials = source.sharedMaterials;
             bool rendererEnabled = source.enabled;
             ShadowCastingMode shadowCastingMode = source.shadowCastingMode;
@@ -168,6 +180,17 @@ namespace LyumaShader
             target.realtimeLightmapScaleOffset = realtimeLightmapScaleOffset;
             target.localBounds = mesh.bounds;
 
+            ObjectRegistry.TryRegisterReplacedObject(sourceReference, target);
+            if(animationIndex != null && animationPath != null)
+            {
+                RewriteRendererBindings(
+                    animationIndex,
+                    animationPath,
+                    typeof(MeshRenderer),
+                    typeof(SkinnedMeshRenderer)
+                );
+            }
+
             if(useUndo)
             {
                 if(source != null) Undo.DestroyObjectImmediate(source);
@@ -179,6 +202,65 @@ namespace LyumaShader
                 if(filter != null) Object.DestroyImmediate(filter);
             }
             return target;
+        }
+
+        private static void RewriteRendererBindings(
+            AnimationIndex animationIndex,
+            string path,
+            Type sourceType,
+            Type targetType
+        )
+        {
+            if(animationIndex == null ||
+                string.IsNullOrEmpty(path) ||
+                sourceType == null ||
+                targetType == null)
+            {
+                return;
+            }
+
+            foreach(VirtualClip clip in
+                animationIndex.GetClipsForObjectPath(path).ToList())
+            {
+                foreach(EditorCurveBinding binding in clip
+                    .GetFloatCurveBindings()
+                    .Where(binding =>
+                        binding.type == sourceType &&
+                        string.Equals(
+                            binding.path,
+                            path,
+                            StringComparison.Ordinal
+                        ))
+                    .ToList())
+                {
+                    AnimationCurve curve = clip.GetFloatCurve(binding);
+                    if(curve == null) continue;
+                    EditorCurveBinding replacement = binding;
+                    replacement.type = targetType;
+                    clip.SetFloatCurve(binding, null);
+                    clip.SetFloatCurve(replacement, curve);
+                }
+
+                foreach(EditorCurveBinding binding in clip
+                    .GetObjectCurveBindings()
+                    .Where(binding =>
+                        binding.type == sourceType &&
+                        string.Equals(
+                            binding.path,
+                            path,
+                            StringComparison.Ordinal
+                        ))
+                    .ToList())
+                {
+                    ObjectReferenceKeyframe[] curve =
+                        clip.GetObjectCurve(binding);
+                    if(curve == null) continue;
+                    EditorCurveBinding replacement = binding;
+                    replacement.type = targetType;
+                    clip.SetObjectCurve(binding, null);
+                    clip.SetObjectCurve(replacement, curve);
+                }
+            }
         }
 
         private static void EnsureFolder(string path)

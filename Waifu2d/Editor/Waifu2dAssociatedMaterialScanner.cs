@@ -147,8 +147,15 @@ namespace LyumaShader
             private void CollectComponent(Component component, GameObject scanRoot)
             {
                 // Renderer materials are collected directly, and Transforms cannot reference any
-                // material/controller/motion assets relevant to this scan.
-                if(component is Renderer || component is Transform) return;
+                // material/controller/motion assets relevant to this scan. The Waifu2d
+                // configuration is also excluded because its material rules are the output of
+                // this scan; reading them back would keep removed materials alive forever.
+                if(component is Renderer ||
+                    component is Transform ||
+                    component is LyumaWaifu2dAvatarConfig)
+                {
+                    return;
+                }
 
                 SerializedObject serializedObject;
                 try
