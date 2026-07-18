@@ -50,7 +50,7 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           generate_release_notes: true
           body: |
-            VPM/VCC 测试版软件包。
+            VPM/VCC 正式版软件包。
 
             - 重做 lilToon 轮廓 ZBias 在 Waifu2d 压平后的深度计算，减少近距离异常轮廓
             - 双面头发、尾巴等材质从背面观察时，会关闭不稳定的背面轮廓与 ZBias
