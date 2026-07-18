@@ -4,6 +4,20 @@
 
 本项目不会修改 lilToon 或 Poiyomi 的源代码。转换时使用 LyumaShader 自己的 Shader，或在 `Assets/LyumaShader/Waifu2d/Generated` 中创建生成文件。
 
+## 从 1.x 升级到 2.x
+
+> [!IMPORTANT]
+> 不要在模型仍使用 1.x 转换材质的情况下直接更新到 2.x。升级前需要保留 1.x，并对每个使用过本工具的模型执行一次“一键还原”。
+
+升级步骤：
+
+1. 先备份 Unity 工程、模型 Prefab 和材质。
+2. 保持 1.x 版本已安装，打开 1.x 的 Waifu2d 批量工具。
+3. 依次选择每个使用过本工具的模型并点击“一键还原”，确认材质已经恢复为原来的 lilToon 或 Poiyomi Shader。
+4. 完成所有模型的还原后，再通过 VCC 更新到 2.x，并使用新的 NDMF 配置重新设置模型。
+
+如果已经在没有还原的情况下更新到了 2.x，请先通过 VCC 回退到 `1.1.9`，执行上述“一键还原”后再重新升级。
+
 ## 主要功能
 
 - 保留原版 LyumaShader 和 Waifu2d 功能。
