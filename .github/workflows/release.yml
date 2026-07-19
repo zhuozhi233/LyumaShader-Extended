@@ -50,19 +50,17 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           generate_release_notes: true
           body: |
-            VPM/VCC 测试版软件包。
+            VPM/VCC 软件包。
 
             > [!IMPORTANT]
-            > 从 1.x 升级到 2.x 前，必须先保留 1.x，并对每个使用过本工具的模型执行一次“一键还原”；确认材质恢复为原来的 lilToon 或 Poiyomi Shader 后再更新。
-            >
-            > 如果已经直接更新到 2.x，请先通过 VCC 回退到 1.1.9，完成“一键还原”后再重新升级。
+            > 从 1.x 升级时，直接安装 2.0.1，再通过 `Tools > LyumaShader Extended > 从 1.x 升级到 2.x` 迁移旧模型。升级前不要求执行一键还原或删除旧版生成资源。
 
-            - 新增基于 NDMF 的非破坏式 Waifu2d 配置，构建时转换副本，不再直接修改源材质、动画或控制器
-            - 支持逐材质启用、独立 2D 参数、材质搜索，以及自定义开关菜单的名称、图标和安装位置
-            - 扫描 Renderer、动画换材质与 MA 组件引用，构建时处理关联材质和材质变体
-            - 官方 lilToon 与 Poiyomi 默认启用；第三方变体着色器改为手动确认后启用，并明确提示兼容风险
-            - Root Bone、MA Mesh Settings 与普通 MeshRenderer 修复迁移到 NDMF 构建副本
-            - 高级设置保留旧版“转换已扫描材质”和“还原已扫描材质”，用于兼容未使用 NDMF 的模型
+            - 基于 NDMF 在构建副本中转换材质、生成动画并修复网格，不直接修改源材质与控制器
+            - 支持逐材质启用和独立 2D 参数；材质列表增加搜索、分页和分类缓存
+            - 官方 lilToon 与 Poiyomi 默认启用；第三方变体着色器需要经过两次风险确认
+            - 新增独立的 1.x → 2.x 迁移工具，保留逐材质参数、Root Bone 与普通网格修复状态；旧动画由 NDMF 重新生成
+            - 2D 开关支持自定义名称、图标，并可安装到 MA 子菜单、Menu Group 或 Menu Installer 目标
+            - Root Bone、MA Mesh Settings 与普通 MeshRenderer 修复在 NDMF 构建副本中执行
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip

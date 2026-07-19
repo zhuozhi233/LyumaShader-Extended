@@ -496,9 +496,11 @@ namespace LyumaShader
             context.AssetSaver.SaveAsset(blendTree);
 
             bool installAtRoot;
+            ModularAvatarMenuInstaller selectedInstaller;
             GameObject toggleParent = ResolveToggleMenuParent(
                 configuration,
-                out installAtRoot
+                out installAtRoot,
+                out selectedInstaller
             );
             string toggleDisplayName =
                 string.IsNullOrWhiteSpace(configuration.ToggleMenuName)
@@ -524,7 +526,15 @@ namespace LyumaShader
 
             if(installAtRoot)
             {
-                toggleObject.AddComponent<ModularAvatarMenuInstaller>();
+                ModularAvatarMenuInstaller installer =
+                    toggleObject.AddComponent<
+                        ModularAvatarMenuInstaller
+                    >();
+                if(selectedInstaller != null)
+                {
+                    installer.installTargetMenu =
+                        selectedInstaller.installTargetMenu;
+                }
             }
             ModularAvatarMergeBlendTree mergeBlendTree =
                 toggleObject.AddComponent<ModularAvatarMergeBlendTree>();
@@ -534,10 +544,12 @@ namespace LyumaShader
 
         private static GameObject ResolveToggleMenuParent(
             ConfigurationSnapshot configuration,
-            out bool installAtRoot
+            out bool installAtRoot,
+            out ModularAvatarMenuInstaller selectedInstaller
         )
         {
             installAtRoot = true;
+            selectedInstaller = null;
             GameObject logicalParent = configuration.ToggleMenuParent;
             if(logicalParent == null ||
                 logicalParent == configuration.Root ||
@@ -586,6 +598,16 @@ namespace LyumaShader
                     installAtRoot = false;
                     return container;
                 }
+            }
+
+            ModularAvatarMenuInstaller menuInstaller =
+                logicalParent.GetComponent<
+                    ModularAvatarMenuInstaller
+                >();
+            if(menuInstaller != null)
+            {
+                selectedInstaller = menuInstaller;
+                return logicalParent;
             }
 
             return configuration.Root;

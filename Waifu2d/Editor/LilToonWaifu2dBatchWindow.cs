@@ -20,6 +20,7 @@ namespace LyumaShader
         private const string ToggleIconPath =
             "Packages/com.zhuozhi.lyumashader-extended/Waifu2d/Resources/Waifu2dTransparent.png";
         private const string ToggleParameterName = "zhz/Lyuma2D";
+        private const string LegacyToggleParameterName = "2D";
         private const string ToggleDisplayName =
             "<b><size=35><line-height=100%><voffset=3.8em>2D</b>";
         private const string TogglePrefabFileName = "切换2D开关";
@@ -28,7 +29,9 @@ namespace LyumaShader
         private const string FacingDirectionProperty = "_facing_coef";
         private const string LockAxisProperty = "_lock2daxis_coef";
         private const string SquashZProperty = "_zcorrect_coef";
+        private const string CustomLogicProperty = "_lyuma_custom_logic_2d";
         private const int CurrentSettingsVersion = 4;
+        private const int MaterialsPerPage = 24;
         private static readonly string[] MainPageNames =
         {
             "材质规则",
@@ -51,14 +54,56 @@ namespace LyumaShader
         [SerializeField] private int settingsVersion;
 
         [SerializeField] private int selectedMainPage;
-        [SerializeField] private bool showDirectToolsSection;
         [SerializeField] private bool thirdPartyShaderVariantRiskAccepted;
+        [SerializeField] private int materialPage;
         private string materialSearch = string.Empty;
         private readonly Dictionary<int, bool> materialDetailFoldouts =
             new Dictionary<int, bool>();
+        private readonly Dictionary<Material, MaterialUiInfo> materialUiInfoCache =
+            new Dictionary<Material, MaterialUiInfo>();
+        private readonly HashSet<Material> scheduledMotchiriMaterials =
+            new HashSet<Material>();
+        private GameObject scheduledMotchiriCacheRoot;
+        private bool scheduledMotchiriCacheValid;
+        private bool showLegacyTargetMaterials;
         private Vector2 scrollPosition;
         private string statusMessage = "请选择目标模型。";
         private MessageType statusType = MessageType.Info;
+
+        private sealed class MaterialUiInfo
+        {
+            internal static readonly MaterialUiInfo Empty =
+                new MaterialUiInfo();
+
+            internal Shader Shader;
+            internal bool IsVariant;
+            internal bool IsOfficialLilToon;
+            internal bool IsCustom;
+            internal bool IsMotchiri;
+            internal bool IsPoiyomi;
+            internal bool IsThirdPartyShaderVariant;
+            internal bool CanBecomeCustom;
+        }
+
+        private sealed class LegacyMaterialSnapshot
+        {
+            internal Material Material;
+            internal Material ShaderOwner;
+            internal Shader OriginalShader;
+            internal bool MergeCustomShader;
+            internal bool EnableCustomLogicIn2D;
+            internal float TwoDimensionalness;
+            internal float FacingDirection;
+            internal float LockAxis;
+            internal float SquashZ;
+        }
+
+        internal struct LegacyUpgradeRunResult
+        {
+            internal GameObject ModelRoot;
+            internal string Message;
+            internal MessageType MessageType;
+        }
 
         [MenuItem("Tools/LyumaShader Extended/Waifu2d 配置工具")]
         private static void OpenWindow()
@@ -76,13 +121,42 @@ namespace LyumaShader
             window.modelRoot = configuration.gameObject;
             window.targetMaterials.Clear();
             window.thirdPartyShaderVariantRiskAccepted = false;
+            window.InvalidateMaterialUiCache();
             window.LoadWindowParametersFromConfiguration();
             ScanResult result = CollectMaterials(
                 new UnityEngine.Object[] { configuration.gameObject }
             );
             window.SetTargets(result, "当前模型");
+            window.ReconcileMaterialRules(
+                configuration,
+                window.targetMaterials,
+                false
+            );
             window.selectedMainPage = 0;
             window.Repaint();
+        }
+
+        internal static LegacyUpgradeRunResult RunLegacyUpgrade(
+            GameObject root
+        )
+        {
+            LilToonWaifu2dBatchWindow worker =
+                CreateInstance<LilToonWaifu2dBatchWindow>();
+            try
+            {
+                worker.modelRoot = root;
+                worker.UpgradeLegacyConfiguration();
+                return new LegacyUpgradeRunResult
+                {
+                    ModelRoot = worker.modelRoot,
+                    Message = worker.statusMessage,
+                    MessageType = worker.statusType
+                };
+            }
+            finally
+            {
+                DestroyImmediate(worker);
+            }
         }
 
         private static LilToonWaifu2dBatchWindow ShowWindow()
@@ -103,7 +177,6 @@ namespace LyumaShader
             if(Mathf.Approximately(squashZ, 0.975f) || Mathf.Approximately(squashZ, 0.8f))
                 squashZ = 1.0f;
             selectedMainPage = 0;
-            showDirectToolsSection = false;
             settingsVersion = CurrentSettingsVersion;
         }
 
@@ -138,19 +211,6 @@ namespace LyumaShader
                     break;
             }
             EditorGUILayout.EndVertical();
-            EditorGUILayout.Space(4.0f);
-
-            showDirectToolsSection = EditorGUILayout.Foldout(
-                showDirectToolsSection,
-                "高级：直接修改模型",
-                true
-            );
-            if(showDirectToolsSection)
-            {
-                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                DrawDirectToolsSection();
-                EditorGUILayout.EndVertical();
-            }
             EditorGUILayout.Space(4.0f);
 
             if(!string.IsNullOrEmpty(statusMessage))
@@ -207,6 +267,8 @@ namespace LyumaShader
                 modelRoot = newRoot;
                 targetMaterials.Clear();
                 thirdPartyShaderVariantRiskAccepted = false;
+                materialPage = 0;
+                InvalidateMaterialUiCache();
                 LoadWindowParametersFromConfiguration();
                 SetStatus(
                     modelRoot != null
@@ -289,10 +351,16 @@ namespace LyumaShader
             }
             EditorGUILayout.EndHorizontal();
 
-            materialSearch = EditorGUILayout.TextField(
+            EditorGUI.BeginChangeCheck();
+            string newMaterialSearch = EditorGUILayout.TextField(
                 materialSearch,
                 EditorStyles.toolbarSearchField
             );
+            if(EditorGUI.EndChangeCheck())
+            {
+                materialSearch = newMaterialSearch;
+                materialPage = 0;
+            }
 
             RemoveInvalidAndDuplicateTargets();
             int lilToonCount = 0;
@@ -305,22 +373,21 @@ namespace LyumaShader
             {
                 if(material == null) continue;
                 if(MatchesMaterialSearch(material)) visibleMaterialCount++;
-                if(material.isVariant) materialVariantCount++;
-                if(IsThirdPartyShaderVariant(material))
+                MaterialUiInfo materialInfo = GetMaterialUiInfo(material);
+                if(materialInfo.IsVariant) materialVariantCount++;
+                if(materialInfo.IsThirdPartyShaderVariant)
                 {
                     thirdPartyShaderVariantCount++;
                 }
-                Shader materialShader = GetMaterialShader(material);
-                if(materialShader == null) continue;
-                if(LilToonWaifu2dAdapter.IsSupported(materialShader))
+                if(materialInfo.IsOfficialLilToon)
                 {
                     lilToonCount++;
                 }
-                else if(GenericLilCustomWaifu2dAdapter.IsSupported(materialShader))
+                else if(materialInfo.IsCustom)
                 {
                     lilCustomCount++;
                 }
-                else if(PoiyomiWaifu2dAdapter.IsSupported(materialShader))
+                else if(materialInfo.IsPoiyomi)
                 {
                     poiyomiCount++;
                 }
@@ -363,6 +430,9 @@ namespace LyumaShader
             }
             EditorGUILayout.Space(3.0f);
 
+            List<Material> visibleMaterials = GetVisibleMaterials();
+            ClampMaterialPage(visibleMaterials.Count);
+            DrawMaterialPager(visibleMaterials.Count);
             if(configuration == null)
             {
                 EditorGUILayout.HelpBox(
@@ -371,11 +441,15 @@ namespace LyumaShader
                 );
                 using(new EditorGUI.DisabledScope(true))
                 {
-                    foreach(Material material in targetMaterials)
+                    int start = materialPage * MaterialsPerPage;
+                    int end = Mathf.Min(
+                        start + MaterialsPerPage,
+                        visibleMaterials.Count
+                    );
+                    for(int index = start; index < end; index++)
                     {
-                        if(!MatchesMaterialSearch(material)) continue;
                         EditorGUILayout.ObjectField(
-                            material,
+                            visibleMaterials[index],
                             typeof(Material),
                             false
                         );
@@ -384,43 +458,36 @@ namespace LyumaShader
             }
             else
             {
-                DrawMaterialRules(configuration);
+                DrawMaterialRules(configuration, visibleMaterials);
             }
+            DrawMaterialPager(visibleMaterials.Count);
         }
 
-        private void DrawMaterialRules(LyumaWaifu2dAvatarConfig configuration)
+        private void DrawMaterialRules(
+            LyumaWaifu2dAvatarConfig configuration,
+            List<Material> visibleMaterials
+        )
         {
             if(configuration == null) return;
-            ReconcileMaterialRules(configuration, targetMaterials, false);
-
-            foreach(Material material in targetMaterials)
+            int start = materialPage * MaterialsPerPage;
+            int end = Mathf.Min(
+                start + MaterialsPerPage,
+                visibleMaterials.Count
+            );
+            for(int index = start; index < end; index++)
             {
-                if(material == null) continue;
-                if(!MatchesMaterialSearch(material)) continue;
+                Material material = visibleMaterials[index];
                 LyumaWaifu2dAvatarConfig.MaterialRule rule =
                     configuration.FindRule(material);
                 if(rule == null) continue;
 
-                Shader shader = GetMaterialShader(material);
-                bool isCustom = shader != null &&
-                    GenericLilCustomWaifu2dAdapter.IsSupported(shader);
-                bool isMotchiri = shader != null &&
-                    shader.name.IndexOf(
-                        "motchiri",
-                        StringComparison.OrdinalIgnoreCase
-                    ) >= 0;
-                bool becomesMotchiriAtBuild =
-                    IsMaterialScheduledForMotchiri(material);
-                if(becomesMotchiriAtBuild)
-                {
-                    isCustom = true;
-                    isMotchiri = true;
-                }
+                MaterialUiInfo materialInfo = GetMaterialUiInfo(material);
+                Shader shader = materialInfo.Shader;
+                bool isCustom = materialInfo.IsCustom;
+                bool isMotchiri = materialInfo.IsMotchiri;
                 bool isThirdPartyShaderVariant =
-                    isCustom || becomesMotchiriAtBuild;
-                bool canBecomeCustom = isCustom ||
-                    (shader != null &&
-                        LilToonWaifu2dAdapter.IsSupported(shader));
+                    materialInfo.IsThirdPartyShaderVariant;
+                bool canBecomeCustom = materialInfo.CanBecomeCustom;
                 bool hasDetails = true;
                 int materialId = material.GetInstanceID();
                 bool showDetails;
@@ -652,7 +719,7 @@ namespace LyumaShader
                 return true;
             }
 
-            Shader shader = GetMaterialShader(material);
+            Shader shader = GetMaterialUiInfo(material).Shader;
             return shader != null &&
                 shader.name.IndexOf(
                     search,
@@ -660,9 +727,128 @@ namespace LyumaShader
                 ) >= 0;
         }
 
-        private bool IsMaterialScheduledForMotchiri(Material material)
+        private List<Material> GetVisibleMaterials()
         {
-            if(modelRoot == null || material == null) return false;
+            var visibleMaterials = new List<Material>();
+            foreach(Material material in targetMaterials)
+            {
+                if(MatchesMaterialSearch(material))
+                    visibleMaterials.Add(material);
+            }
+            return visibleMaterials;
+        }
+
+        private void ClampMaterialPage(int materialCount)
+        {
+            int pageCount = Mathf.Max(
+                1,
+                Mathf.CeilToInt(materialCount / (float)MaterialsPerPage)
+            );
+            materialPage = Mathf.Clamp(materialPage, 0, pageCount - 1);
+        }
+
+        private void DrawMaterialPager(int materialCount)
+        {
+            int pageCount = Mathf.Max(
+                1,
+                Mathf.CeilToInt(materialCount / (float)MaterialsPerPage)
+            );
+            if(pageCount <= 1) return;
+
+            EditorGUILayout.BeginHorizontal();
+            using(new EditorGUI.DisabledScope(materialPage <= 0))
+            {
+                if(GUILayout.Button("上一页", GUILayout.Width(68.0f)))
+                    materialPage--;
+            }
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.LabelField(
+                string.Format(
+                    "第 {0} / {1} 页 · 每页最多 {2} 个",
+                    materialPage + 1,
+                    pageCount,
+                    MaterialsPerPage
+                ),
+                EditorStyles.centeredGreyMiniLabel,
+                GUILayout.Width(170.0f)
+            );
+            GUILayout.FlexibleSpace();
+            using(new EditorGUI.DisabledScope(materialPage >= pageCount - 1))
+            {
+                if(GUILayout.Button("下一页", GUILayout.Width(68.0f)))
+                    materialPage++;
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(2.0f);
+        }
+
+        private MaterialUiInfo GetMaterialUiInfo(Material material)
+        {
+            if(material == null) return MaterialUiInfo.Empty;
+            Shader shader = GetMaterialShader(material);
+            MaterialUiInfo cached;
+            if(materialUiInfoCache.TryGetValue(material, out cached) &&
+                cached.Shader == shader &&
+                cached.IsVariant == material.isVariant)
+            {
+                return cached;
+            }
+
+            bool scheduledForMotchiri =
+                IsMaterialScheduledForMotchiri(material);
+            bool isCustom = shader != null &&
+                GenericLilCustomWaifu2dAdapter.IsSupported(shader);
+            bool isMotchiri = shader != null &&
+                shader.name.IndexOf(
+                    "motchiri",
+                    StringComparison.OrdinalIgnoreCase
+                ) >= 0;
+            if(scheduledForMotchiri)
+            {
+                isCustom = true;
+                isMotchiri = true;
+            }
+
+            cached = new MaterialUiInfo
+            {
+                Shader = shader,
+                IsVariant = material.isVariant,
+                IsOfficialLilToon = shader != null &&
+                    LilToonWaifu2dAdapter.IsSupported(shader),
+                IsCustom = isCustom,
+                IsMotchiri = isMotchiri,
+                IsPoiyomi = shader != null &&
+                    PoiyomiWaifu2dAdapter.IsSupported(shader),
+                IsThirdPartyShaderVariant =
+                    isCustom || scheduledForMotchiri,
+                CanBecomeCustom = isCustom ||
+                    (shader != null &&
+                        LilToonWaifu2dAdapter.IsSupported(shader))
+            };
+            materialUiInfoCache[material] = cached;
+            return cached;
+        }
+
+        private void InvalidateMaterialUiCache()
+        {
+            materialUiInfoCache.Clear();
+            scheduledMotchiriMaterials.Clear();
+            scheduledMotchiriCacheRoot = null;
+            scheduledMotchiriCacheValid = false;
+        }
+
+        private void EnsureScheduledMotchiriMaterialCache()
+        {
+            if(scheduledMotchiriCacheValid &&
+                scheduledMotchiriCacheRoot == modelRoot)
+            {
+                return;
+            }
+
+            scheduledMotchiriMaterials.Clear();
+            scheduledMotchiriCacheRoot = modelRoot;
+            scheduledMotchiriCacheValid = true;
+            if(modelRoot == null) return;
 
             foreach(Component component in
                 modelRoot.GetComponentsInChildren<Component>(true))
@@ -715,10 +901,18 @@ namespace LyumaShader
                         continue;
                     }
 
-                    if(renderer.sharedMaterials[slot] == material) return true;
+                    Material material = renderer.sharedMaterials[slot];
+                    if(material != null)
+                        scheduledMotchiriMaterials.Add(material);
                 }
             }
-            return false;
+        }
+
+        private bool IsMaterialScheduledForMotchiri(Material material)
+        {
+            if(material == null) return false;
+            EnsureScheduledMotchiriMaterialCache();
+            return scheduledMotchiriMaterials.Contains(material);
         }
 
         private bool ConfirmThirdPartyShaderVariant(Material material)
@@ -737,13 +931,68 @@ namespace LyumaShader
             );
         }
 
+        private bool ConfirmThirdPartyShaderVariants(
+            List<Material> materials
+        )
+        {
+            if(materials == null || materials.Count == 0) return false;
+            if(materials.Count == 1)
+                return ConfirmThirdPartyShaderVariant(materials[0]);
+
+            return EditorUtility.DisplayDialog(
+                "启用第三方变体着色器",
+                "检测到 " + materials.Count +
+                " 个使用第三方变体着色器的材质（例如“" +
+                materials[0].name + "”）。\n\n" +
+                "第三方着色器的结构和顶点逻辑可能与官方版本不同，自动适配不保证可用，" +
+                "可能出现着色器编译错误、原功能失效或渲染异常。\n\n" +
+                "确定要手动启用这些材质吗？确认后界面会显示“启用所有材质”按钮。",
+                "确定",
+                "取消"
+            );
+        }
+
+        private bool PromptToEnableThirdPartyShaderVariants(
+            List<Material> materials
+        )
+        {
+            var thirdPartyMaterials = new List<Material>();
+            if(materials != null)
+            {
+                foreach(Material material in materials)
+                {
+                    if(material != null &&
+                        IsThirdPartyShaderVariant(material))
+                    {
+                        thirdPartyMaterials.Add(material);
+                    }
+                }
+            }
+            if(thirdPartyMaterials.Count == 0) return false;
+
+            bool enableThirdParty = EditorUtility.DisplayDialog(
+                "检测到 lilToon Custom Shader",
+                "模型中检测到 " + thirdPartyMaterials.Count +
+                " 个 lilToon Custom Shader 或其他第三方变体着色器材质。\n\n" +
+                "不建议自动启用：第三方变体可能无法正确合并，也可能导致原功能失效、" +
+                "着色器编译错误或渲染异常。\n\n" +
+                "是否仍要启用这些材质？",
+                "仍要启用",
+                "不启用（推荐）"
+            );
+            if(!enableThirdParty) return false;
+            if(!ConfirmThirdPartyShaderVariants(thirdPartyMaterials))
+                return false;
+
+            thirdPartyShaderVariantRiskAccepted = true;
+            EditorUtility.SetDirty(this);
+            return true;
+        }
+
         private bool IsThirdPartyShaderVariant(Material material)
         {
-            if(material == null) return false;
-            Shader shader = GetMaterialShader(material);
-            return (shader != null &&
-                    GenericLilCustomWaifu2dAdapter.IsSupported(shader)) ||
-                IsMaterialScheduledForMotchiri(material);
+            return material != null &&
+                GetMaterialUiInfo(material).IsThirdPartyShaderVariant;
         }
 
         private LyumaWaifu2dAvatarConfig.MaterialRule
@@ -755,10 +1004,9 @@ namespace LyumaShader
             {
                 Material = material,
                 Convert = !thirdPartyShaderVariant,
-                // Official shaders must not opt into a Custom Shader merge
-                // automatically. A detected third-party rule keeps merge
-                // enabled so manually checking Convert is the only opt-in
-                // required from the user.
+                // MergeCustomShader is relevant only to detected Custom
+                // Shader families. Convert remains the independent switch
+                // that controls whether the material participates.
                 MergeCustomShader = thirdPartyShaderVariant
             };
         }
@@ -782,8 +1030,26 @@ namespace LyumaShader
                 return;
             }
 
+            int thirdPartyMaterialCount = 0;
+            foreach(Material material in targetMaterials)
+            {
+                if(IsThirdPartyShaderVariant(material))
+                    thirdPartyMaterialCount++;
+            }
+            bool enableThirdParty =
+                PromptToEnableThirdPartyShaderVariants(targetMaterials);
             RecordConfiguration(configuration, "配置 Lyuma Waifu2d NDMF");
             ReconcileMaterialRules(configuration, targetMaterials, true);
+            foreach(Material material in targetMaterials)
+            {
+                LyumaWaifu2dAvatarConfig.MaterialRule rule =
+                    configuration.FindRule(material);
+                if(rule == null) continue;
+                bool isThirdParty = IsThirdPartyShaderVariant(material);
+                rule.Convert = !isThirdParty || enableThirdParty;
+                if(isThirdParty && enableThirdParty)
+                    rule.MergeCustomShader = true;
+            }
             CopyWindowParametersToConfiguration(configuration);
             configuration.GenerateToggle = true;
             configuration.RepairRootBones = true;
@@ -793,6 +1059,11 @@ namespace LyumaShader
             SetStatus(
                 string.Format(
                     "已更新 NDMF 配置：启用 {0} 个材质，并开启 2D 开关、Root Bone 修复和普通网格修复。" +
+                    (thirdPartyMaterialCount > 0
+                        ? enableThirdParty
+                            ? "\n已按用户确认启用第三方变体着色器；其兼容性不作保证。"
+                            : "\n第三方变体着色器保持停用。"
+                        : string.Empty) +
                     "\n原材质、动画和控制器没有被修改；效果会在 NDMF 构建副本中生成。",
                     CountEnabledRules(configuration)
                 ),
@@ -926,7 +1197,7 @@ namespace LyumaShader
             GameObject newParent = (GameObject)EditorGUILayout.ObjectField(
                 new GUIContent(
                     "菜单位置",
-                    "留空时安装到菜单根；也可以指定使用“子对象”作为来源的 MA 子菜单或 MA Menu Group。"
+                    "留空时安装到菜单根；也可以指定使用“子对象”作为来源的 MA 子菜单、MA Menu Group 或 MA Menu Installer。"
                 ),
                 configuration.ToggleMenuParent,
                 typeof(GameObject),
@@ -945,14 +1216,14 @@ namespace LyumaShader
                     SetStatus(
                         newParent == null
                             ? "2D 开关将安装到模型菜单根。"
-                            : "2D 开关将生成到指定的 MA 子菜单中。",
+                            : "2D 开关将生成到指定的 MA 菜单位置。",
                         MessageType.Info
                     );
                 }
                 else
                 {
                     SetStatus(
-                        "菜单位置必须位于当前模型内部，并且带有使用“子对象”作为来源的 MA Menu Item，或 MA Menu Group。",
+                        "菜单位置必须位于当前模型内部，并且带有使用“子对象”作为来源的 MA Menu Item、MA Menu Group 或 MA Menu Installer。",
                         MessageType.Warning
                     );
                 }
@@ -980,14 +1251,778 @@ namespace LyumaShader
             {
                 return true;
             }
-            return candidate.GetComponent<ModularAvatarMenuGroup>() != null;
+            return candidate.GetComponent<ModularAvatarMenuGroup>() != null ||
+                candidate.GetComponent<
+                    ModularAvatarMenuInstaller
+                >() != null;
+        }
+
+        private void UpgradeLegacyConfiguration()
+        {
+            if(modelRoot == null)
+            {
+                SetStatus("请先指定需要升级的模型根对象。", MessageType.Warning);
+                return;
+            }
+
+            ScanResult scan = CollectMaterials(
+                new UnityEngine.Object[] { modelRoot }
+            );
+            SetTargets(scan, "1.x 模型");
+
+            var snapshots = new List<LegacyMaterialSnapshot>();
+            var originalShaders = new Dictionary<Material, Shader>();
+            var failedShaderOwners = new List<Material>();
+            bool containsCustomShader = false;
+            foreach(Material material in targetMaterials)
+            {
+                if(material == null || !IsWaifu2dMaterial(material))
+                    continue;
+
+                Material shaderOwner = GetShaderOwner(material);
+                Shader originalShader;
+                if(!originalShaders.TryGetValue(
+                        shaderOwner,
+                        out originalShader))
+                {
+                    originalShader = shaderOwner != null
+                        ? GetOriginalShader(shaderOwner.shader)
+                        : null;
+                    if(originalShader == null)
+                    {
+                        if(shaderOwner != null &&
+                            !failedShaderOwners.Contains(shaderOwner))
+                        {
+                            failedShaderOwners.Add(shaderOwner);
+                        }
+                        continue;
+                    }
+                    originalShaders.Add(shaderOwner, originalShader);
+                }
+
+                bool mergeCustomShader =
+                    GenericLilCustomWaifu2dAdapter.IsSupported(
+                        originalShader
+                    );
+                containsCustomShader |= mergeCustomShader;
+                snapshots.Add(new LegacyMaterialSnapshot
+                {
+                    Material = material,
+                    ShaderOwner = shaderOwner,
+                    OriginalShader = originalShader,
+                    MergeCustomShader = mergeCustomShader,
+                    EnableCustomLogicIn2D = GetMaterialFloat(
+                        material,
+                        CustomLogicProperty,
+                        0.0f
+                    ) > 0.5f,
+                    TwoDimensionalness = GetMaterialFloat(
+                        material,
+                        TwoDimensionalnessProperty,
+                        0.99f
+                    ),
+                    FacingDirection = GetMaterialFloat(
+                        material,
+                        FacingDirectionProperty,
+                        0.0f
+                    ),
+                    LockAxis = GetMaterialFloat(
+                        material,
+                        LockAxisProperty,
+                        1.0f
+                    ),
+                    SquashZ = GetMaterialFloat(
+                        material,
+                        SquashZProperty,
+                        1.0f
+                    )
+                });
+            }
+
+            if(failedShaderOwners.Count > 0)
+            {
+                SetStatus(
+                    "升级已中止：以下 1.x 材质无法找到转换前的 Shader，尚未修改任何内容：\n" +
+                    FormatObjectNames(failedShaderOwners),
+                    MessageType.Error
+                );
+                return;
+            }
+
+            bool hasLegacyRootBoneRepair =
+                FindRootBoneRestoreRoot(modelRoot) != null;
+            bool hasLegacyStaticMeshRepair =
+                modelRoot
+                    .GetComponentsInChildren<
+                        LyumaWaifu2dStaticMeshConverter
+                    >(true)
+                    .Length > 0;
+            int legacyToggleCount =
+                CountLegacyToggleItems(modelRoot);
+            LyumaWaifu2dAvatarConfig existingConfiguration =
+                GetConfiguration(false);
+            bool hadConfiguration = existingConfiguration != null;
+
+            if(snapshots.Count == 0 &&
+                !hasLegacyRootBoneRepair &&
+                !hasLegacyStaticMeshRepair &&
+                legacyToggleCount == 0)
+            {
+                SetStatus(
+                    hadConfiguration
+                        ? "没有检测到需要从 1.x 迁移的内容；当前模型已经存在 2.x NDMF 配置。"
+                        : "没有检测到 1.x 转换材质、修复组件或旧版 2D 开关。",
+                    MessageType.Info
+                );
+                return;
+            }
+
+            string confirmation = string.Format(
+                "将把以下 1.x 状态迁移到 2.x NDMF 配置：\n\n" +
+                "· 已转换材质：{0} 个\n" +
+                "· Root Bone 修复：{1}\n" +
+                "· 普通网格修复：{2}\n" +
+                "· 待清理的旧版 MA 2D 开关：{3}\n\n" +
+                "迁移完成后会把材质恢复为原 Shader，并移除旧版修复组件与 MA 开关对象。" +
+                "旧动画、BlendTree 和 Prefab 资源不会迁移；2.x 开关由 NDMF 在构建时重新生成。" +
+                (containsCustomShader
+                    ? "\n\n其中包含第三方 Custom Shader；将按 1.x 原状态继续启用，兼容性不作保证。"
+                    : string.Empty),
+                snapshots.Count,
+                hasLegacyRootBoneRepair ? "已启用" : "未启用",
+                hasLegacyStaticMeshRepair ? "已启用" : "未启用",
+                legacyToggleCount > 0
+                    ? legacyToggleCount + " 个"
+                    : "未安装"
+            );
+            if(!EditorUtility.DisplayDialog(
+                    "从 1.x 升级到 2.x",
+                    confirmation,
+                    "开始升级",
+                    "取消"))
+            {
+                SetStatus("已取消 1.x 升级。", MessageType.Info);
+                return;
+            }
+
+            LyumaWaifu2dAvatarConfig configuration =
+                GetConfiguration(true);
+            if(configuration == null) return;
+
+            var existingRuleMaterials = new HashSet<Material>();
+            if(configuration.Materials != null)
+            {
+                foreach(LyumaWaifu2dAvatarConfig.MaterialRule existingRule in
+                    configuration.Materials)
+                {
+                    if(existingRule != null &&
+                        existingRule.Material != null)
+                    {
+                        existingRuleMaterials.Add(existingRule.Material);
+                    }
+                }
+            }
+
+            RecordConfiguration(
+                configuration,
+                "从 Lyuma Waifu2d 1.x 升级"
+            );
+            ReconcileMaterialRules(
+                configuration,
+                targetMaterials,
+                true
+            );
+            var snapshotByMaterial =
+                new Dictionary<Material, LegacyMaterialSnapshot>();
+            foreach(LegacyMaterialSnapshot snapshot in snapshots)
+            {
+                snapshotByMaterial[snapshot.Material] = snapshot;
+            }
+
+            foreach(Material material in targetMaterials)
+            {
+                LyumaWaifu2dAvatarConfig.MaterialRule rule =
+                    configuration.FindRule(material);
+                if(rule == null) continue;
+
+                LegacyMaterialSnapshot snapshot;
+                if(snapshotByMaterial.TryGetValue(material, out snapshot))
+                {
+                    rule.Convert = true;
+                    rule.MergeCustomShader = snapshot.MergeCustomShader;
+                    rule.EnableCustomLogicIn2D =
+                        snapshot.EnableCustomLogicIn2D;
+                    rule.FlattenMaterialVariant = material.isVariant;
+                    rule.OverrideParameters = true;
+                    rule.TwoDimensionalness =
+                        snapshot.TwoDimensionalness;
+                    rule.FacingDirection = snapshot.FacingDirection;
+                    rule.LockAxis = snapshot.LockAxis;
+                    rule.SquashZ = snapshot.SquashZ;
+                }
+                else if(!existingRuleMaterials.Contains(material))
+                {
+                    rule.Convert = false;
+                }
+            }
+
+            if(!hadConfiguration)
+            {
+                configuration.RepairRootBones =
+                    hasLegacyRootBoneRepair;
+                configuration.ConvertStaticMeshes =
+                    hasLegacyStaticMeshRepair;
+            }
+            else
+            {
+                configuration.RepairRootBones |=
+                    hasLegacyRootBoneRepair;
+                configuration.ConvertStaticMeshes |=
+                    hasLegacyStaticMeshRepair;
+            }
+            SaveConfiguration(configuration);
+
+            BeginMaterialUndo(
+                "恢复 1.x Waifu2d 材质并升级到 2.x",
+                out int undoGroup
+            );
+            foreach(KeyValuePair<Material, Shader> pair in
+                originalShaders)
+            {
+                Material shaderOwner = pair.Key;
+                if(shaderOwner == null) continue;
+                int renderQueue = shaderOwner.renderQueue;
+                Undo.RecordObject(
+                    shaderOwner,
+                    "恢复 1.x Waifu2d 材质"
+                );
+                shaderOwner.shader = pair.Value;
+                shaderOwner.renderQueue = renderQueue;
+                EditorUtility.SetDirty(shaderOwner);
+            }
+            FinishMaterialUndo(undoGroup);
+
+            RootBoneRepairResult rootBoneRestoreResult =
+                hasLegacyRootBoneRepair
+                    ? ProcessRootBoneRepairTarget(
+                        modelRoot,
+                        true,
+                        false
+                    )
+                    : RootBoneRepairResult.Unchanged(
+                        string.Empty,
+                        MessageType.Info
+                    );
+            int removedLegacyArtifacts = RemoveLegacyBuildArtifacts(
+                modelRoot,
+                hasLegacyStaticMeshRepair,
+                legacyToggleCount > 0
+            );
+
+            InvalidateMaterialUiCache();
+            configuration = GetConfiguration(false);
+            if(configuration != null)
+            {
+                PrepareConfiguredShaders(configuration);
+                SaveConfiguration(configuration);
+            }
+            ScanResult upgradedScan = CollectMaterials(
+                new UnityEngine.Object[] { modelRoot }
+            );
+            SetTargets(upgradedScan, "升级后的模型");
+            LoadWindowParametersFromConfiguration();
+            thirdPartyShaderVariantRiskAccepted =
+                containsCustomShader;
+
+            SetStatus(
+                string.Format(
+                    "1.x → 2.x 升级完成：迁移 {0} 个材质规则，恢复 {1} 个基础材质 Shader，" +
+                    "移除 {2} 个旧版构建组件或开关对象。" +
+                    (hasLegacyRootBoneRepair &&
+                        !rootBoneRestoreResult.changed
+                        ? "\nRoot Bone 旧状态未发生修改：" +
+                            rootBoneRestoreResult.message
+                        : string.Empty) +
+                    "\n后续转换、动画和网格修复将由 NDMF 构建副本处理。",
+                    snapshots.Count,
+                    originalShaders.Count,
+                    removedLegacyArtifacts
+                ),
+                hasLegacyRootBoneRepair &&
+                    !rootBoneRestoreResult.changed &&
+                    rootBoneRestoreResult.messageType != MessageType.Info
+                    ? rootBoneRestoreResult.messageType
+                    : MessageType.Info
+            );
+        }
+
+        private static float GetMaterialFloat(
+            Material material,
+            string propertyName,
+            float fallback
+        )
+        {
+            return material != null &&
+                material.HasProperty(propertyName)
+                ? material.GetFloat(propertyName)
+                : fallback;
+        }
+
+        private static int CountLegacyToggleItems(
+            GameObject root
+        )
+        {
+            if(root == null) return 0;
+            int count = 0;
+
+            foreach(ModularAvatarMenuItem item in
+                root.GetComponentsInChildren<
+                    ModularAvatarMenuItem
+                >(true))
+            {
+                if(!IsLegacyToggleItem(item)) continue;
+                count++;
+            }
+            return count;
+        }
+
+        private static bool IsLegacyToggleItem(
+            ModularAvatarMenuItem item
+        )
+        {
+            if(item == null ||
+                item.PortableControl == null ||
+                !IsLegacyToggleParameter(
+                    item.PortableControl.Parameter))
+            {
+                return false;
+            }
+
+            ModularAvatarMergeBlendTree mergeBlendTree =
+                item.GetComponent<ModularAvatarMergeBlendTree>();
+            BlendTree tree = mergeBlendTree != null
+                ? mergeBlendTree.Motion as BlendTree
+                : null;
+            return tree != null &&
+                IsLegacyToggleParameter(tree.blendParameter);
+        }
+
+        private static bool IsLegacyToggleParameter(
+            string parameterName
+        )
+        {
+            return string.Equals(
+                    parameterName,
+                    ToggleParameterName,
+                    StringComparison.Ordinal) ||
+                string.Equals(
+                    parameterName,
+                    LegacyToggleParameterName,
+                    StringComparison.Ordinal);
+        }
+
+        private static int RemoveLegacyBuildArtifacts(
+            GameObject requestedRoot,
+            bool removeStaticMeshRepair,
+            bool removeToggle
+        )
+        {
+            if(requestedRoot == null) return 0;
+            if(!EditorUtility.IsPersistent(requestedRoot))
+            {
+                int removed = RemoveLegacyBuildArtifactsFromRoot(
+                    requestedRoot,
+                    removeStaticMeshRepair,
+                    removeToggle,
+                    true
+                );
+                if(removed > 0) SaveConfigurationObject(requestedRoot);
+                return removed;
+            }
+
+            string assetPath = AssetDatabase.GetAssetPath(requestedRoot);
+            if(string.IsNullOrEmpty(assetPath) ||
+                !assetPath.EndsWith(
+                    ".prefab",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
+
+            GameObject prefabRoot = null;
+            try
+            {
+                prefabRoot = PrefabUtility.LoadPrefabContents(assetPath);
+                int removed = RemoveLegacyBuildArtifactsFromRoot(
+                    prefabRoot,
+                    removeStaticMeshRepair,
+                    removeToggle,
+                    false
+                );
+                if(removed > 0)
+                {
+                    PrefabUtility.SaveAsPrefabAsset(
+                        prefabRoot,
+                        assetPath
+                    );
+                    AssetDatabase.SaveAssets();
+                }
+                return removed;
+            }
+            finally
+            {
+                if(prefabRoot != null)
+                    PrefabUtility.UnloadPrefabContents(prefabRoot);
+            }
+        }
+
+        private static int RemoveLegacyBuildArtifactsFromRoot(
+            GameObject root,
+            bool removeStaticMeshRepair,
+            bool removeToggle,
+            bool useUndo
+        )
+        {
+            int removed = 0;
+            if(removeStaticMeshRepair)
+            {
+                foreach(LyumaWaifu2dStaticMeshConverter marker in
+                    root.GetComponentsInChildren<
+                        LyumaWaifu2dStaticMeshConverter
+                    >(true))
+                {
+                    if(marker == null) continue;
+                    DestroyObject(marker, useUndo);
+                    removed++;
+                }
+            }
+
+            if(!removeToggle) return removed;
+            var toggleItems = new List<ModularAvatarMenuItem>();
+            foreach(ModularAvatarMenuItem item in
+                root.GetComponentsInChildren<
+                    ModularAvatarMenuItem
+                >(true))
+            {
+                if(IsLegacyToggleItem(item))
+                    toggleItems.Add(item);
+            }
+            foreach(ModularAvatarMenuItem item in toggleItems)
+            {
+                if(item == null) continue;
+                GameObject toggleObject = item.gameObject;
+                if(CanRemoveLegacyToggleObject(toggleObject))
+                {
+                    DestroyObject(toggleObject, useUndo);
+                    removed++;
+                    continue;
+                }
+
+                ModularAvatarMergeBlendTree mergeBlendTree =
+                    toggleObject.GetComponent<
+                        ModularAvatarMergeBlendTree
+                    >();
+                ModularAvatarMenuInstaller installer =
+                    toggleObject.GetComponent<
+                        ModularAvatarMenuInstaller
+                    >();
+                DestroyObject(item, useUndo);
+                DestroyObject(mergeBlendTree, useUndo);
+                if(installer != null)
+                    DestroyObject(installer, useUndo);
+                removed++;
+            }
+            return removed;
+        }
+
+        private static bool CanRemoveLegacyToggleObject(
+            GameObject toggleObject
+        )
+        {
+            if(toggleObject == null ||
+                toggleObject.transform.childCount > 0)
+            {
+                return false;
+            }
+
+            foreach(Component component in
+                toggleObject.GetComponents<Component>())
+            {
+                if(component is Transform ||
+                    component is ModularAvatarMenuItem ||
+                    component is ModularAvatarMenuInstaller ||
+                    component is ModularAvatarMergeBlendTree)
+                {
+                    continue;
+                }
+                return false;
+            }
+            return true;
+        }
+
+        private void RunLegacyCompleteWorkflow()
+        {
+            if(modelRoot == null)
+            {
+                SetStatus("请先指定模型根对象。", MessageType.Warning);
+                return;
+            }
+
+            ScanResult scan = CollectMaterials(
+                new UnityEngine.Object[] { modelRoot }
+            );
+            SetTargets(scan, "模型");
+            List<Material> materials = GetUsableTargets();
+            if(materials.Count == 0)
+            {
+                SetStatus(
+                    "模型中没有找到受支持的 lilToon、lilToon Custom 或 Poiyomi 材质，已停止一键执行。",
+                    MessageType.Warning
+                );
+                return;
+            }
+
+            bool enableThirdParty =
+                PromptToEnableThirdPartyShaderVariants(materials);
+            var materialsToConvert = new List<Material>();
+            foreach(Material material in materials)
+            {
+                if(!IsThirdPartyShaderVariant(material) ||
+                    enableThirdParty)
+                {
+                    materialsToConvert.Add(material);
+                }
+            }
+            ConvertMaterials(materialsToConvert, "模型");
+
+            RootBoneRepairResult rootBoneResult =
+                ProcessRootBoneRepairTarget(modelRoot, false, false);
+            if(!EditorUtility.IsPersistent(modelRoot) &&
+                rootBoneResult.resolvedRoot != null)
+            {
+                modelRoot = rootBoneResult.resolvedRoot;
+                InvalidateMaterialUiCache();
+            }
+
+            if(modelRoot.GetComponent<LyumaWaifu2dStaticMeshConverter>() == null)
+            {
+                Undo.AddComponent<LyumaWaifu2dStaticMeshConverter>(modelRoot);
+                EditorUtility.SetDirty(modelRoot);
+            }
+
+            GenerateStrengthAnimations();
+        }
+
+        private void RunLegacyCompleteRemoval()
+        {
+            if(modelRoot == null)
+            {
+                SetStatus("请先指定模型根对象。", MessageType.Warning);
+                return;
+            }
+
+            ScanResult scan = CollectMaterials(
+                new UnityEngine.Object[] { modelRoot }
+            );
+            SetTargets(scan, "模型");
+            List<Material> materials = GetUsableTargets();
+            if(materials.Count > 0)
+            {
+                RevertMaterials(materials, "模型");
+            }
+            else
+            {
+                RootBoneRepairResult restoreResult =
+                    ProcessRootBoneRepairTarget(modelRoot, true, false);
+                SetStatus(
+                    restoreResult.message,
+                    restoreResult.messageType
+                );
+            }
+
+            LyumaWaifu2dStaticMeshConverter marker =
+                modelRoot.GetComponent<LyumaWaifu2dStaticMeshConverter>();
+            bool removedBuildConverter = marker != null;
+            if(marker != null)
+            {
+                Undo.DestroyObjectImmediate(marker);
+                EditorUtility.SetDirty(modelRoot);
+            }
+
+            SetStatus(
+                statusMessage + (removedBuildConverter
+                    ? "\n已移除 NDMF 普通 Mesh 构建期修复。"
+                    : "\n模型上没有 NDMF 普通 Mesh 构建期修复。"),
+                statusType
+            );
         }
 
         private void DrawDirectToolsSection()
         {
             EditorGUILayout.HelpBox(
-                "以下操作会立即修改模型资源，不属于 NDMF 非破坏流程。工具无法自动还原，请只在明确需要时使用。",
+                "这里保留 1.1.9 的完整操作入口，可直接继续处理或还原由 1.x 转换过的模型。" +
+                "直接材质和网格操作会修改原资源；使用前请确认目标正确。",
                 MessageType.Warning
+            );
+            EditorGUILayout.LabelField("1.x 兼容一键处理", EditorStyles.boldLabel);
+            EditorGUILayout.BeginHorizontal();
+            if(GUILayout.Button("一键应用（1.x 兼容）", GUILayout.Height(32.0f)))
+            {
+                RunLegacyCompleteWorkflow();
+            }
+            if(GUILayout.Button("一键还原（1.x 兼容）", GUILayout.Height(32.0f)))
+            {
+                RunLegacyCompleteRemoval();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(8.0f);
+            DrawLegacyTargetSection();
+            EditorGUILayout.Space(8.0f);
+            DrawLegacyConversionSection();
+            EditorGUILayout.Space(8.0f);
+            DrawLegacyGeneralParametersSection();
+            EditorGUILayout.Space(8.0f);
+            DrawLegacyAnimationSection();
+        }
+
+        private void DrawLegacyTargetSection()
+        {
+            EditorGUILayout.LabelField("目标与扫描", EditorStyles.boldLabel);
+            EditorGUILayout.BeginHorizontal();
+            if(GUILayout.Button("扫描模型中的材质"))
+            {
+                if(modelRoot == null)
+                {
+                    SetStatus("请先拖入模型根对象。", MessageType.Warning);
+                }
+                else
+                {
+                    SetTargets(
+                        CollectMaterials(
+                            new UnityEngine.Object[] { modelRoot }
+                        ),
+                        "模型"
+                    );
+                }
+            }
+            if(GUILayout.Button("读取当前多选"))
+            {
+                SetTargets(CollectMaterials(Selection.objects), "当前多选");
+            }
+            if(GUILayout.Button("清空", GUILayout.Width(60.0f)))
+            {
+                targetMaterials.Clear();
+                materialPage = 0;
+                InvalidateMaterialUiCache();
+                SetStatus("已清空目标材质。", MessageType.Info);
+            }
+            EditorGUILayout.EndHorizontal();
+
+            RemoveInvalidAndDuplicateTargets();
+            int lilToonConvertedCount = 0;
+            int lilToonOriginalCount = 0;
+            int lilCustomConvertedCount = 0;
+            int lilCustomOriginalCount = 0;
+            int poiyomiConvertedCount = 0;
+            int poiyomiOriginalCount = 0;
+            foreach(Material material in targetMaterials)
+            {
+                Shader materialShader = GetMaterialShader(material);
+                if(materialShader == null) continue;
+                if(LilToonWaifu2dAdapter.IsSupported(materialShader))
+                {
+                    if(LilToonWaifu2dAdapter.IsWaifu2dShader(materialShader))
+                        lilToonConvertedCount++;
+                    else
+                        lilToonOriginalCount++;
+                }
+                else if(GenericLilCustomWaifu2dAdapter.IsSupported(materialShader))
+                {
+                    if(GenericLilCustomWaifu2dAdapter.IsWaifu2dShader(materialShader))
+                        lilCustomConvertedCount++;
+                    else
+                        lilCustomOriginalCount++;
+                }
+                else if(PoiyomiWaifu2dAdapter.IsSupported(materialShader))
+                {
+                    if(PoiyomiWaifu2dAdapter.IsWaifu2dShader(materialShader))
+                        poiyomiConvertedCount++;
+                    else
+                        poiyomiOriginalCount++;
+                }
+            }
+
+            EditorGUILayout.LabelField(
+                "已扫描的支持材质",
+                targetMaterials.Count + " 个"
+            );
+            EditorGUILayout.LabelField(
+                "lilToon",
+                string.Format(
+                    "待转换 {0} / 已转换 {1}",
+                    lilToonOriginalCount,
+                    lilToonConvertedCount
+                )
+            );
+            EditorGUILayout.LabelField(
+                "lilToon Custom",
+                string.Format(
+                    "待转换 {0} / 已转换 {1}",
+                    lilCustomOriginalCount,
+                    lilCustomConvertedCount
+                )
+            );
+            EditorGUILayout.LabelField(
+                "Poiyomi",
+                string.Format(
+                    "待转换 {0} / 已转换 {1}",
+                    poiyomiOriginalCount,
+                    poiyomiConvertedCount
+                )
+            );
+
+            showLegacyTargetMaterials = EditorGUILayout.Foldout(
+                showLegacyTargetMaterials,
+                "查看目标材质",
+                true
+            );
+            if(!showLegacyTargetMaterials) return;
+
+            List<Material> visibleMaterials = GetVisibleMaterials();
+            ClampMaterialPage(visibleMaterials.Count);
+            DrawMaterialPager(visibleMaterials.Count);
+            int start = materialPage * MaterialsPerPage;
+            int end = Mathf.Min(
+                start + MaterialsPerPage,
+                visibleMaterials.Count
+            );
+            EditorGUI.indentLevel++;
+            using(new EditorGUI.DisabledScope(true))
+            {
+                for(int index = start; index < end; index++)
+                {
+                    EditorGUILayout.ObjectField(
+                        visibleMaterials[index],
+                        typeof(Material),
+                        false
+                    );
+                }
+            }
+            EditorGUI.indentLevel--;
+            DrawMaterialPager(visibleMaterials.Count);
+        }
+
+        private void DrawLegacyConversionSection()
+        {
+            EditorGUILayout.LabelField(
+                "应用与还原 Lyuma Waifu2d",
+                EditorStyles.boldLabel
+            );
+            EditorGUILayout.HelpBox(
+                "转换和还原入口与 1.1.9 一致，可处理当前扫描结果或当前多选。" +
+                "lilToon Custom 等第三方变体仍不保证兼容。",
+                MessageType.Info
             );
             EditorGUILayout.BeginHorizontal();
             if(GUILayout.Button(
@@ -997,26 +2032,162 @@ namespace LyumaShader
                 ConvertMaterials(GetUsableTargets(), "已扫描材质");
             }
             if(GUILayout.Button(
+                "转换当前多选",
+                GUILayout.Height(28.0f)))
+            {
+                ScanSelectionAndRun(ConvertMaterials, "当前多选");
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.BeginHorizontal();
+            if(GUILayout.Button(
                 "还原已扫描材质",
                 GUILayout.Height(28.0f)))
             {
                 RevertMaterials(GetUsableTargets(), "已扫描材质");
             }
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.BeginHorizontal();
             if(GUILayout.Button(
-                "直接修复全部蒙皮网格",
+                "还原当前多选",
+                GUILayout.Height(28.0f)))
+            {
+                ScanSelectionAndRun(RevertMaterials, "当前多选");
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(6.0f);
+            EditorGUILayout.LabelField("Root Bone 修复", EditorStyles.boldLabel);
+            bool hasRootBoneRepair = modelRoot != null &&
+                FindRootBoneRestoreRoot(modelRoot) != null;
+            string rootBoneButton = hasRootBoneRepair
+                ? "取消修复"
+                : "修复蒙皮网格异常（运行时生效-非破坏）";
+            EditorGUILayout.BeginHorizontal();
+            if(GUILayout.Button(rootBoneButton, GUILayout.Height(28.0f)))
+            {
+                RunRootBoneRepair(hasRootBoneRepair);
+            }
+            if(GUILayout.Button(
+                "强制修复全部蒙皮网格（无法还原）",
                 GUILayout.Height(28.0f)))
             {
                 RunDirectRootBoneRepair();
             }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(6.0f);
+            EditorGUILayout.LabelField(
+                "普通 MeshRenderer 修复",
+                EditorStyles.boldLabel
+            );
+            bool hasBuildConverter = modelRoot != null &&
+                modelRoot.GetComponent<LyumaWaifu2dStaticMeshConverter>() != null;
+            string buildConverterButton = hasBuildConverter
+                ? "取消修复"
+                : "修复普通网格异常（运行时生效-非破坏）";
+            EditorGUILayout.BeginHorizontal();
+            if(GUILayout.Button(buildConverterButton, GUILayout.Height(28.0f)))
+            {
+                if(hasBuildConverter) RemoveStaticMeshBuildConverter();
+                else AddStaticMeshBuildConverter();
+            }
             if(GUILayout.Button(
-                "直接转换全部普通网格",
+                "强制修复全部普通网格（无法还原）",
                 GUILayout.Height(28.0f)))
             {
                 ConvertStaticMeshesDirectly();
             }
             EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawLegacyGeneralParametersSection()
+        {
+            EditorGUILayout.LabelField("批量参数", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "勾选需要写入的参数。未勾选的参数保持原值。",
+                MessageType.None
+            );
+            DrawOptionalSlider(
+                ref applyTwoDimensionalness,
+                ref twoDimensionalness,
+                new GUIContent(
+                    "2D 强度",
+                    "2D Amount：0 为 3D，0.99 为推荐的 2D 值"
+                ),
+                0.0f,
+                1.0f
+            );
+            DrawOptionalSlider(
+                ref applyFacingDirection,
+                ref facingDirection,
+                new GUIContent("朝向", "Facing Direction：-1 到 1"),
+                -1.0f,
+                1.0f
+            );
+            DrawOptionalSlider(
+                ref applyLockAxis,
+                ref lockAxis,
+                new GUIContent("锁定 2D 轴", "Lock 2D Axis：0 到 1"),
+                0.0f,
+                1.0f
+            );
+            DrawOptionalSlider(
+                ref applySquashZ,
+                ref squashZ,
+                new GUIContent(
+                    "Z 深度修正",
+                    "Squash Z：推荐 1.0；使用压平后的稳定深度"
+                ),
+                0.0f,
+                1.0f
+            );
+
+            EditorGUILayout.BeginHorizontal();
+            if(GUILayout.Button(
+                "应用到已扫描材质",
+                GUILayout.Height(26.0f)))
+            {
+                ApplyGeneralParameters(
+                    GetUsableTargets(),
+                    "已扫描材质"
+                );
+            }
+            if(GUILayout.Button(
+                "应用到当前多选",
+                GUILayout.Height(26.0f)))
+            {
+                ScanSelectionAndRun(
+                    ApplyGeneralParameters,
+                    "当前多选"
+                );
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawLegacyAnimationSection()
+        {
+            EditorGUILayout.LabelField(
+                "生成 2D 开关动画",
+                EditorStyles.boldLabel
+            );
+            EditorGUILayout.HelpBox(
+                "生成 1.x 使用的两个动画、BlendTree 和 MA 开关 Prefab。" +
+                "已有生成资源会更新内容并保留资源索引。",
+                MessageType.Info
+            );
+            animationOutputFolder = (DefaultAsset)EditorGUILayout.ObjectField(
+                new GUIContent(
+                    "动画输出文件夹",
+                    "留空时使用 " + DefaultAnimationFolder
+                ),
+                animationOutputFolder,
+                typeof(DefaultAsset),
+                false
+            );
+            if(GUILayout.Button(
+                "生成 2D 开关动画与 MA Prefab",
+                GUILayout.Height(32.0f)))
+            {
+                GenerateStrengthAnimations();
+            }
         }
 
         private void AddStaticMeshBuildConverter()
@@ -1667,6 +2838,7 @@ namespace LyumaShader
                 converted++;
             }
             FinishMaterialUndo(undoGroup);
+            InvalidateMaterialUiCache();
 
             SetStatus(
                 string.Format(
@@ -1714,6 +2886,7 @@ namespace LyumaShader
                 changed++;
             }
             FinishMaterialUndo(undoGroup);
+            InvalidateMaterialUiCache();
 
             SetStatus(
                 string.Format(
@@ -1767,6 +2940,7 @@ namespace LyumaShader
                 reverted++;
             }
             FinishMaterialUndo(undoGroup);
+            InvalidateMaterialUiCache();
 
             string rootBoneRestoreStatus = TryAutoRestoreRootBoneRepair();
 
@@ -2613,7 +3787,11 @@ namespace LyumaShader
             Selection.objects = switchPrefab != null
                 ? new UnityEngine.Object[] { disabledClip, enabledClip, blendTree, switchPrefab }
                 : new UnityEngine.Object[] { disabledClip, enabledClip, blendTree };
-            EditorGUIUtility.PingObject(switchPrefab != null ? switchPrefab : blendTree);
+            EditorGUIUtility.PingObject(
+                switchPrefab != null
+                    ? (UnityEngine.Object)switchPrefab
+                    : blendTree
+            );
             SetStatus(
                 string.Format(
                     "已在模型独立文件夹中生成 2 个动画、1 个 BlendTree 和 1 个 MA 开关 Prefab，共绑定 {0} 个 Renderer。" +
@@ -2930,6 +4108,8 @@ namespace LyumaShader
         {
             targetMaterials.Clear();
             targetMaterials.AddRange(result.supportedMaterials);
+            materialPage = 0;
+            InvalidateMaterialUiCache();
             SetStatus(
                 string.Format(
                     "已读取{0}：扫描 {1} 个 Renderer、{2} 个控制器、{3} 个动画，找到 {4} 个不重复材质" +
