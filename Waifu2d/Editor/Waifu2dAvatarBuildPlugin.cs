@@ -195,7 +195,12 @@ namespace LyumaShader
                 return source;
             }
 
-            Shader targetShader = ResolveTargetShader(source.shader, rule);
+            Shader conversionSourceShader =
+                PoiyomiWaifu2dAdapter.GetUnlockedSourceShader(source);
+            Shader targetShader = ResolveTargetShader(
+                conversionSourceShader,
+                rule
+            );
             if(targetShader == null)
             {
                 Debug.LogWarning(
@@ -275,7 +280,15 @@ namespace LyumaShader
                 clone = new Material(source);
             }
 
-            Shader originalShader = ResolveOriginalShader(source.shader);
+            Shader unlockedSourceShader =
+                PoiyomiWaifu2dAdapter.GetUnlockedSourceShader(source);
+            Shader originalShader = ResolveOriginalShader(unlockedSourceShader);
+            if(originalShader == null &&
+                unlockedSourceShader != null &&
+                unlockedSourceShader != source.shader)
+            {
+                originalShader = unlockedSourceShader;
+            }
             if(originalShader != null) clone.shader = originalShader;
             clone.name = source.name + " (Lyuma Particle Build)";
             clone.renderQueue = renderQueue;

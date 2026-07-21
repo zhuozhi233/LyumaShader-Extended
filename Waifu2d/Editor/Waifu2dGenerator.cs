@@ -423,6 +423,24 @@ namespace LyumaShader {
                 }
             }
             includePath = includePrefix + includePath;
+            if (isPoiyomiSource && !foundCgInclude) {
+                // Poiyomi can place its first pass inside a //ifex block. A
+                // CGINCLUDE inserted beside that pass is removed when the
+                // optimizer locks the material, so keep Waifu2d at the top of
+                // the SubShader where it is shared by every retained pass.
+                for (int i = cgIncludeLineNum; i >= 0; i--) {
+                    if (!shaderData [i].TrimStart ().StartsWith ("SubShader", StringComparison.Ordinal)) {
+                        continue;
+                    }
+                    for (int j = i; j <= cgIncludeLineNum; j++) {
+                        if (shaderData [j].IndexOf ('{') < 0) continue;
+                        cgIncludeLineNum = j + 1;
+                        cgIncludeSkip = 0;
+                        break;
+                    }
+                    break;
+                }
+            }
             if (foundCgInclude) {
                 string cgIncludeLine = shaderData [cgIncludeLineNum];
                 string cgIncludeAdd = "//Waifu2d Generated\n#define LYUMA2D_HOTPATCH\n";
@@ -457,12 +475,13 @@ namespace LyumaShader {
             }
 
             string epLine = shaderData [beginPropertiesLineNum];
+            string lockAttribute = isPoiyomiSource ? "[DoNotLock]" : "";
             string propertiesAdd = "\n" +
                 "        // Waifu2d Properties::\n" +
-                "        _2d_coef (\"Twodimensionalness\", Range(0, 1)) = 0.99\n" +
-                "        _facing_coef (\"Face in Profile\", Range (-1, 1)) = 0.0\n" +
-                "        _lock2daxis_coef (\"Lock 2d Axis\", Range (0, 1)) = " + (vr2d ? "0.0" : "1.0") + "\n" +
-                "        _zcorrect_coef (\"Squash Z (recommended=1; stable flattened depth)\", Float) = " + (vr2d ? "0.0" : "1.0") + "\n";
+                "        " + lockAttribute + "_2d_coef (\"Twodimensionalness\", Range(0, 1)) = 0.99\n" +
+                "        " + lockAttribute + "_facing_coef (\"Face in Profile\", Range (-1, 1)) = 0.0\n" +
+                "        " + lockAttribute + "_lock2daxis_coef (\"Lock 2d Axis\", Range (0, 1)) = " + (vr2d ? "0.0" : "1.0") + "\n" +
+                "        " + lockAttribute + "_zcorrect_coef (\"Squash Z (recommended=1; stable flattened depth)\", Float) = " + (vr2d ? "0.0" : "1.0") + "\n";
             epLine = epLine.Substring (0, beginPropertiesSkip) + propertiesAdd + epLine.Substring (beginPropertiesSkip);
             shaderData [beginPropertiesLineNum] = epLine;
 

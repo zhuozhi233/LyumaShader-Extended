@@ -55,10 +55,10 @@ jobs:
             > [!IMPORTANT]
             > 从 1.x 升级时，直接安装最新版 2.x，再通过 `Tools > LyumaShader Extended > 从 1.x 升级到 2.x` 迁移旧模型。升级前不要求执行一键还原或删除旧版生成资源。
 
-            - 修复 Poiyomi 转换后材质面板无法正常加载
-            - 改善 Poiyomi 在高 2D 强度下的厚度与前后层显示
-            - 修复 Poiyomi 摄像机贴近和穿过模型时的异常显示
-            - 调整 lilToon 近裁剪处理，避免摄像机穿过后画面停留
+            - Poiyomi 改用原版 Waifu2d 投影效果，修复特定视角下前后层显示错误
+            - 修复 Poiyomi 材质锁定后 2D 效果失效，并保留动画参数
+            - 修复构建时无法从已锁定 Poiyomi 材质识别原始着色器的问题
+            - 修复 lilToon 进入 2D 后仍可能投射完整 3D 轮廓阴影的问题
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip

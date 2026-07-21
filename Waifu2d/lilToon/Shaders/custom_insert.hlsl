@@ -305,3 +305,48 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
         LyumaWaifu2dApply(o, positionOS.xyz); \
         LIL_RE_VERTEX_POSITION_INPUTS(o)
 #endif
+
+// lilToon's BRP shadow caster normally rebuilds its position directly from the
+// original object-space vertex. Use the position produced by the custom vertex
+// hook so a flattened renderer does not keep casting its full 3D silhouette.
+#if defined(LIL_BRP)
+    float4 LyumaWaifu2dShadowCasterPosition(
+        float3 positionWS,
+        float3 normalOS,
+        float bias)
+    {
+        #if defined(SHADOWS_DEPTH)
+            if(LIL_MATRIX_P._m33 == 0.0) bias = 0.0;
+        #endif
+
+        float3 lightDirection = normalize(UnityWorldSpaceLightDir(positionWS));
+        positionWS -= lightDirection * bias;
+
+        if(unity_LightShadowBias.z != 0.0)
+        {
+            float3 normalWS = UnityObjectToWorldNormal(normalOS);
+            float shadowCos = dot(normalWS, lightDirection);
+            float shadowSine = sqrt(saturate(1.0 - shadowCos * shadowCos));
+            positionWS -= normalWS * (unity_LightShadowBias.z * shadowSine);
+        }
+
+        return mul(UNITY_MATRIX_VP, float4(positionWS, 1.0));
+    }
+
+    #undef LIL_TRANSFER_SHADOW_CASTER
+    #if defined(SHADOWS_CUBE) && !defined(SHADOWS_CUBE_IN_DEPTH_TEX)
+        #define LIL_TRANSFER_SHADOW_CASTER(v,o) \
+            o.vec = lilToAbsolutePositionWS(vertexInput.positionWS) \
+                - _LightPositionRange.xyz; \
+            o.positionCS = mul( \
+                UNITY_MATRIX_VP, \
+                float4(lilToAbsolutePositionWS(vertexInput.positionWS), 1.0))
+    #else
+        #define LIL_TRANSFER_SHADOW_CASTER(v,o) \
+            o.positionCS = LyumaWaifu2dShadowCasterPosition( \
+                lilToAbsolutePositionWS(vertexInput.positionWS), \
+                v.normalOS, \
+                _lilShadowCasterBias); \
+            o.positionCS = UnityApplyLinearShadowBias(o.positionCS)
+    #endif
+#endif
