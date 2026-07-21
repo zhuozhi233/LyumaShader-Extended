@@ -45,7 +45,18 @@ static float2 cameraToObj2D = normalize(cameraToObj.xz); // FIXME: was normalize
 #if defined(VR_ONLY_2D) && !defined(USING_STEREO_MATRICES)
 static float desired_waifu_coef = 0.0;
 #else
-static float desired_waifu_coef = min(0.995, max(0.0, _2d_coef));
+    #if defined(LYUMA2D_POIYOMI)
+        // Poiyomi exposes the small amount of depth left near the upper end more
+        // readily than lilToon. Preserve the lower range, then converge smoothly
+        // toward a very thin non-zero shell when the UI reaches its 0.99 default.
+        static float poiyomi_waifu_input = max(0.0, _2d_coef);
+        static float poiyomi_near_flat = saturate((poiyomi_waifu_input - 0.9) / 0.09);
+        static float desired_waifu_coef = min(
+            0.9995,
+            poiyomi_waifu_input + poiyomi_near_flat * 0.0095);
+    #else
+        static float desired_waifu_coef = min(0.995, max(0.0, _2d_coef));
+    #endif
 #endif
 static float waifu_coef = desired_waifu_coef;
 
@@ -152,8 +163,82 @@ float4 waifu_projectVertex2(float4 vertexWorldPos, float4 origPos) {
     // object-relative offset. vertexWorldPos is retained in the signature for
     // compatibility with generated shaders, but is deliberately not projected.
     float4 newViewPos = waifu_computeVertexViewPos(origPos);
+    #if defined(LYUMA2D_POIYOMI)
+        float poiyomiSafeNearDepth = max(
+            0.005,
+            max(0.00001, _ProjectionParams.y) * 1.05);
+    #endif
     float4 newPos = mul(UNITY_MATRIX_P, newViewPos);
-    newPos.z = lerp(sign(oPos.w * oPos.z * newPos.w) * max(0.00001, abs(oPos.z)) * max(0.00001, abs(newPos.w)) / max(0.00001, abs(oPos.w)), newPos.z, _zcorrect_coef);
+    #if defined(LYUMA2D_POIYOMI)
+        // Transparent Poiyomi overlays commonly disable ZWrite and rely on the
+        // original mesh separation from the opaque surface below them. Keep a
+        // small amount of that ordering near the paper-flat endpoint without
+        // restoring any X/Y perspective thickness.
+        float zCorrection = min(
+            _zcorrect_coef,
+            lerp(1.0, 0.8, poiyomi_near_flat));
+        float rendererOriginVSZ = mul(
+            UNITY_MATRIX_MV,
+            float4(0.0, 0.0, 0.0, 1.0)).z;
+        float originalRelativeVSZ = mul(
+            (float3x3)UNITY_MATRIX_V,
+            mul((float3x3)unity_ObjectToWorld, origPos.xyz)).z;
+        float originalDepthVSZ = rendererOriginVSZ
+            + originalRelativeVSZ;
+        float stableDepthVSZ = lerp(
+            originalDepthVSZ,
+            newViewPos.z,
+            zCorrection);
+        // Near a side-on view, the model's original front/back separation is
+        // almost perpendicular to the camera and collapses in the depth buffer.
+        // Add a depth-only hemisphere ordering so the front shell wins from the
+        // front and the rear shell wins from behind without changing clip X/Y.
+        float3 canonicalFacingWS = normalize(mul(
+            (float3x3)unity_ObjectToWorld,
+            targetCameraPosFacingVec));
+        float canonicalLayer = dot(
+            mul((float3x3)unity_ObjectToWorld, origPos.xyz),
+            canonicalFacingWS);
+        float cameraHemisphere = step(
+            0.0,
+            dot(cameraPosInObjectSpace, targetCameraPosFacingVec))
+            * 2.0 - 1.0;
+        stableDepthVSZ += canonicalLayer
+            * cameraHemisphere
+            * poiyomi_near_flat
+            * 0.25;
+        // Preserve Poiyomi's depth ordering only while the flattened geometry
+        // is outside the camera near plane. Once it reaches the clipping zone,
+        // keep the native projected depth so crossing the plane cannot leave an
+        // image pinned in front of the camera.
+        if(unity_OrthoParams.w >= 0.5
+            || newViewPos.z <= -poiyomiSafeNearDepth)
+        {
+            if(unity_OrthoParams.w < 0.5 && waifu_coef > 0.1)
+            {
+                // Keep individual layers valid without collapsing them onto
+                // exactly the same depth before the near plane is reached.
+                float nearCompressionScale = 0.02;
+                float nearCompressionInput = (
+                    -poiyomiSafeNearDepth - stableDepthVSZ)
+                    / nearCompressionScale;
+                if(nearCompressionInput < 12.0)
+                {
+                    stableDepthVSZ = -poiyomiSafeNearDepth
+                        - log(1.0 + exp(nearCompressionInput))
+                            * nearCompressionScale;
+                }
+            }
+            float4 stableDepthCS = mul(
+                UNITY_MATRIX_P,
+                float4(0.0, 0.0, stableDepthVSZ, 1.0));
+            newPos.z = stableDepthCS.z
+                / nonzeroify(stableDepthCS.w)
+                * newPos.w;
+        }
+    #else
+        newPos.z = lerp(sign(oPos.w * oPos.z * newPos.w) * max(0.00001, abs(oPos.z)) * max(0.00001, abs(newPos.w)) / max(0.00001, abs(oPos.w)), newPos.z, _zcorrect_coef);
+    #endif
     return newPos;
     // END CRAZY PER VERTEX
 }

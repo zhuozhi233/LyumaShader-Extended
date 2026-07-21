@@ -390,6 +390,13 @@ namespace LyumaShader {
                 return null;
             }
 
+            string normalizedSourcePath = path.Replace ('\\', '/');
+            bool isAssetSource = normalizedSourcePath.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase);
+            bool isPoiyomiPackageSource = normalizedSourcePath.StartsWith (POIYOMI_PACKAGE_PREFIX, StringComparison.OrdinalIgnoreCase);
+            bool isPoiyomiSource = isPoiyomiPackageSource ||
+                normalizedSourcePath.IndexOf ("/_PoiyomiShaders/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                shaderName.IndexOf (".poiyomi/", StringComparison.OrdinalIgnoreCase) >= 0;
+
             string includeAssetPath;
             string cgincCode;
             if (!TryLocateWaifu2dInclude (out includeAssetPath, out cgincCode)) {
@@ -401,8 +408,6 @@ namespace LyumaShader {
                 : includeAssetPath;
             Debug.Log("Including code from " + includePath);
             int numSlashes = 0;
-            bool isAssetSource = path.StartsWith ("Assets/", StringComparison.OrdinalIgnoreCase);
-            bool isPoiyomiPackageSource = path.Replace ('\\', '/').StartsWith (POIYOMI_PACKAGE_PREFIX, StringComparison.OrdinalIgnoreCase);
             if (!isAssetSource && !isPoiyomiPackageSource) {
                 EditorUtility.DisplayDialog ("Waifu2d", "Shader " + shaderName + " at path " + path + " must be in Assets!", "OK", "");
                 return null;
@@ -421,6 +426,9 @@ namespace LyumaShader {
             if (foundCgInclude) {
                 string cgIncludeLine = shaderData [cgIncludeLineNum];
                 string cgIncludeAdd = "//Waifu2d Generated\n#define LYUMA2D_HOTPATCH\n";
+                if (isPoiyomiSource) {
+                    cgIncludeAdd += "#define LYUMA2D_POIYOMI 1\n";
+                }
                 if (vr2d) {
                     cgIncludeAdd += "#define VR_ONLY_2D 1\n";
                 }
@@ -433,6 +441,9 @@ namespace LyumaShader {
             } else {
                 string cgIncludeLine = shaderData [cgIncludeLineNum];
                 string cgIncludeAdd = "\nCGINCLUDE\n//Waifu2d Generated Block\n#define LYUMA2D_HOTPATCH\n";
+                if (isPoiyomiSource) {
+                    cgIncludeAdd += "#define LYUMA2D_POIYOMI 1\n";
+                }
                 if (vr2d) {
                     cgIncludeAdd += "#define VR_ONLY_2D 1\n";
                 }
@@ -483,7 +494,7 @@ namespace LyumaShader {
                 if (isPoiyomiPackageSource) {
                     shaderData [i] = RewriteRelativeInclude (shaderData [i], path);
                 }
-                if (shaderData [i].IndexOf ("CustomEditor", StringComparison.CurrentCulture) != -1) {
+                if (!isPoiyomiSource && shaderData [i].IndexOf ("CustomEditor", StringComparison.CurrentCulture) != -1) {
                     writer.WriteLine ("//" + shaderData [i]);
                 } else {
                     writer.WriteLine (shaderData [i]);

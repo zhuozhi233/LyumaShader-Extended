@@ -120,30 +120,6 @@ void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput, float3 positio
 
     vertexInput.positionWS = lilToRelativePositionWS(objectPos + stableWorldOffset);
     vertexInput.positionVS = objectOriginVS + mul((float3x3)LIL_MATRIX_V, stableWorldOffset);
-    if(lilIsPerspective() && waifu_coef > 0.1)
-    {
-        // A nearly flat renderer can pass completely through the camera before
-        // lilToon's regular clipping canceller runs. Its front surface then
-        // disappears while a deeper renderer remains visible. Keep the final
-        // 2D plane just behind the camera near plane without changing its X/Y
-        // projection or reducing the requested 2D amount.
-        float safeNearDepth = max(
-            0.005,
-            max(0.00001, _ProjectionParams.y) * 1.05);
-        float clampedViewZ = min(
-            vertexInput.positionVS.z,
-            -safeNearDepth);
-        float viewZCorrection =
-            clampedViewZ - vertexInput.positionVS.z;
-        if(viewZCorrection < 0.0)
-        {
-            float3 viewCorrection =
-                float3(0.0, 0.0, viewZCorrection);
-            vertexInput.positionVS.z = clampedViewZ;
-            vertexInput.positionWS +=
-                mul((float3x3)UNITY_MATRIX_I_V, viewCorrection);
-        }
-    }
     #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
         vertexInput.positionSS = float4(
             originalDepthNDC,
@@ -207,43 +183,52 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
 
     if(waifu_coef > 1.0e-6)
     {
-        #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
-            float originalUnbiasedNDC = depthReferenceData.x;
-            float originalBiasNDC = depthReferenceData.y;
-            float outlineBiasVSZ = depthReferenceData.z;
-            float outlineBiasSafeFactor = depthReferenceData.w;
+        float safeNearDepth = max(
+            0.005,
+            max(0.00001, _ProjectionParams.y) * 1.05);
+        bool applyWaifuDepthCorrection = !lilIsPerspective()
+            || stablePositionVS.z <= -safeNearDepth;
 
-            // stablePositionVS already retains the physical part of Z Bias that
-            // remains at the current 2D Amount. Project only the removed part at
-            // the new flattened depth, then use that projected NDC depth without
-            // restoring any view-space X/Y movement or visible thickness.
-            float3 reprojectedBiasPositionVS = stablePositionVS;
-            reprojectedBiasPositionVS.z +=
-                outlineBiasVSZ * waifu_coef * outlineBiasSafeFactor;
-            float4 reprojectedBiasPositionCS =
-                lilTransformVStoCS(reprojectedBiasPositionVS);
-            float reprojectedBiasedNDC =
-                reprojectedBiasPositionCS.z
-                / nonzeroify(reprojectedBiasPositionCS.w);
+        if(applyWaifuDepthCorrection)
+        {
+            #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
+                float originalUnbiasedNDC = depthReferenceData.x;
+                float originalBiasNDC = depthReferenceData.y;
+                float outlineBiasVSZ = depthReferenceData.z;
+                float outlineBiasSafeFactor = depthReferenceData.w;
 
-            // zcorrect = 0 keeps lilToon's original biased NDC depth.
-            // zcorrect = 1 uses the flattened position with Z Bias reprojected
-            // at that position. The near-clip switch disables both endpoints.
-            float originalBiasedNDC = originalUnbiasedNDC
-                + originalBiasNDC * outlineBiasSafeFactor;
-            float correctedBiasedNDC = lerp(
-                originalBiasedNDC,
-                reprojectedBiasedNDC,
-                _zcorrect_coef);
-            vertexInput.positionCS.z =
-                correctedBiasedNDC * vertexInput.positionCS.w;
-        #else
-            float correctedZ = sign(depthReferenceData.w * depthReferenceData.z * vertexInput.positionCS.w)
-                * max(0.00001, abs(depthReferenceData.z))
-                * max(0.00001, abs(vertexInput.positionCS.w))
-                / max(0.00001, abs(depthReferenceData.w));
-            vertexInput.positionCS.z = lerp(correctedZ, vertexInput.positionCS.z, _zcorrect_coef);
-        #endif
+                // stablePositionVS already retains the physical part of Z Bias that
+                // remains at the current 2D Amount. Project only the removed part at
+                // the new flattened depth, then use that projected NDC depth without
+                // restoring any view-space X/Y movement or visible thickness.
+                float3 reprojectedBiasPositionVS = stablePositionVS;
+                reprojectedBiasPositionVS.z +=
+                    outlineBiasVSZ * waifu_coef * outlineBiasSafeFactor;
+                float4 reprojectedBiasPositionCS =
+                    lilTransformVStoCS(reprojectedBiasPositionVS);
+                float reprojectedBiasedNDC =
+                    reprojectedBiasPositionCS.z
+                    / nonzeroify(reprojectedBiasPositionCS.w);
+
+                // zcorrect = 0 keeps lilToon's original biased NDC depth.
+                // zcorrect = 1 uses the flattened position with Z Bias reprojected
+                // at that position.
+                float originalBiasedNDC = originalUnbiasedNDC
+                    + originalBiasNDC * outlineBiasSafeFactor;
+                float correctedBiasedNDC = lerp(
+                    originalBiasedNDC,
+                    reprojectedBiasedNDC,
+                    _zcorrect_coef);
+                vertexInput.positionCS.z =
+                    correctedBiasedNDC * vertexInput.positionCS.w;
+            #else
+                float correctedZ = sign(depthReferenceData.w * depthReferenceData.z * vertexInput.positionCS.w)
+                    * max(0.00001, abs(depthReferenceData.z))
+                    * max(0.00001, abs(vertexInput.positionCS.w))
+                    / max(0.00001, abs(depthReferenceData.w));
+                vertexInput.positionCS.z = lerp(correctedZ, vertexInput.positionCS.z, _zcorrect_coef);
+            #endif
+        }
 
         #if defined(LIL_FAKESHADOW) && !defined(LIL_HDRP)
             // FakeShadow applies its light-direction offset after this custom
@@ -274,8 +259,11 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
             // lil_pass_forward_fakeshadow subtracts originalFakeShadowShiftCS
             // immediately after this hook. Adding the difference here makes the
             // final result subtract adjustedFakeShadowShiftCS instead.
-            vertexInput.positionCS +=
-                originalFakeShadowShiftCS - adjustedFakeShadowShiftCS;
+            if(applyWaifuDepthCorrection)
+            {
+                vertexInput.positionCS +=
+                    originalFakeShadowShiftCS - adjustedFakeShadowShiftCS;
+            }
         #endif
 
         #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
