@@ -9,6 +9,7 @@ using nadena.dev.ndmf.fluent;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
+using VRC.SDK3.Avatars.ScriptableObjects;
 using Object = UnityEngine.Object;
 
 [assembly: ExportsPlugin(typeof(LyumaShader.Waifu2dAvatarBuildPlugin))]
@@ -554,32 +555,54 @@ namespace LyumaShader
 
             bool installAtRoot;
             ModularAvatarMenuInstaller selectedInstaller;
+            ModularAvatarMenuItem selectedMenuItem;
+            VRCExpressionsMenu selectedTargetMenu;
             GameObject toggleParent = ResolveToggleMenuParent(
                 configuration,
                 out installAtRoot,
-                out selectedInstaller
+                out selectedInstaller,
+                out selectedMenuItem,
+                out selectedTargetMenu
             );
             string toggleDisplayName =
                 string.IsNullOrWhiteSpace(configuration.ToggleMenuName)
                     ? ToggleDisplayName
                     : configuration.ToggleMenuName;
-            var toggleObject = new GameObject(toggleDisplayName);
-            toggleObject.transform.SetParent(toggleParent.transform, false);
-
-            ModularAvatarMenuItem menuItem =
-                toggleObject.AddComponent<ModularAvatarMenuItem>();
-            menuItem.label = toggleDisplayName;
-            menuItem.PortableControl.Type = PortableControlType.Toggle;
+            GameObject toggleObject;
+            ModularAvatarMenuItem menuItem;
+            if(selectedMenuItem != null)
+            {
+                toggleObject = selectedMenuItem.gameObject;
+                menuItem = selectedMenuItem;
+            }
+            else
+            {
+                toggleObject = new GameObject(toggleDisplayName);
+                toggleObject.transform.SetParent(
+                    toggleParent.transform,
+                    false
+                );
+                menuItem =
+                    toggleObject.AddComponent<ModularAvatarMenuItem>();
+            }
             menuItem.PortableControl.Parameter = ToggleParameterName;
             menuItem.PortableControl.Value = 1.0f;
-            menuItem.PortableControl.Icon =
-                configuration.ToggleMenuIcon != null
-                    ? configuration.ToggleMenuIcon
-                    : AssetDatabase.LoadAssetAtPath<Texture2D>(ToggleIconPath);
-            menuItem.isSynced = true;
-            menuItem.isSaved = true;
-            menuItem.isDefault = false;
             menuItem.automaticValue = true;
+            if(selectedMenuItem == null)
+            {
+                menuItem.label = toggleDisplayName;
+                menuItem.PortableControl.Type = PortableControlType.Toggle;
+                menuItem.PortableControl.Icon =
+                    configuration.ToggleMenuIcon != null
+                        ? configuration.ToggleMenuIcon
+                        : AssetDatabase.LoadAssetAtPath<Texture2D>(
+                            ToggleIconPath
+                        );
+                menuItem.isSynced = configuration.ToggleSynced;
+                menuItem.isSaved = configuration.ToggleSaved;
+                menuItem.isDefault =
+                    configuration.ToggleDefaultEnabled;
+            }
 
             if(installAtRoot)
             {
@@ -592,6 +615,10 @@ namespace LyumaShader
                     installer.installTargetMenu =
                         selectedInstaller.installTargetMenu;
                 }
+                else if(selectedTargetMenu != null)
+                {
+                    installer.installTargetMenu = selectedTargetMenu;
+                }
             }
             ModularAvatarMergeBlendTree mergeBlendTree =
                 toggleObject.AddComponent<ModularAvatarMergeBlendTree>();
@@ -602,11 +629,15 @@ namespace LyumaShader
         private static GameObject ResolveToggleMenuParent(
             ConfigurationSnapshot configuration,
             out bool installAtRoot,
-            out ModularAvatarMenuInstaller selectedInstaller
+            out ModularAvatarMenuInstaller selectedInstaller,
+            out ModularAvatarMenuItem selectedMenuItem,
+            out VRCExpressionsMenu selectedTargetMenu
         )
         {
             installAtRoot = true;
             selectedInstaller = null;
+            selectedMenuItem = null;
+            selectedTargetMenu = null;
             GameObject logicalParent = configuration.ToggleMenuParent;
             if(logicalParent == null ||
                 logicalParent == configuration.Root ||
@@ -619,24 +650,55 @@ namespace LyumaShader
 
             ModularAvatarMenuItem menuItem =
                 logicalParent.GetComponent<ModularAvatarMenuItem>();
-            if(menuItem != null &&
-                menuItem.PortableControl != null &&
-                menuItem.PortableControl.Type == PortableControlType.SubMenu &&
-                menuItem.MenuSource == SubmenuSource.Children)
+            if(menuItem != null)
             {
-                GameObject container =
-                    menuItem.menuSource_otherObjectChildren != null
-                        ? menuItem.menuSource_otherObjectChildren
-                        : logicalParent;
-                if(container != null &&
-                    (container == configuration.Root ||
-                        container.transform.IsChildOf(
-                            configuration.Root.transform
-                        )))
+                if(menuItem.PortableControl != null &&
+                    menuItem.PortableControl.Type ==
+                        PortableControlType.SubMenu)
+                {
+                    if(menuItem.MenuSource == SubmenuSource.MenuAsset)
+                    {
+                        selectedTargetMenu =
+                            menuItem.PortableControl.VRChatSubMenu as
+                                VRCExpressionsMenu;
+                        if(selectedTargetMenu != null)
+                        {
+                            return logicalParent;
+                        }
+                        menuItem.MenuSource = SubmenuSource.Children;
+                        menuItem.menuSource_otherObjectChildren =
+                            logicalParent;
+                    }
+
+                    GameObject container =
+                        menuItem.menuSource_otherObjectChildren != null
+                            ? menuItem.menuSource_otherObjectChildren
+                            : logicalParent;
+                    if(container != null &&
+                        (container == configuration.Root ||
+                            container.transform.IsChildOf(
+                                configuration.Root.transform
+                            )))
+                    {
+                        installAtRoot = false;
+                        return container;
+                    }
+                }
+
+                selectedMenuItem = menuItem;
+                ModularAvatarMenuInstaller existingInstaller =
+                    logicalParent.GetComponent<
+                        ModularAvatarMenuInstaller
+                    >();
+                if(existingInstaller != null ||
+                    IsIncludedByMenuSource(
+                        configuration.Root,
+                        logicalParent
+                    ))
                 {
                     installAtRoot = false;
-                    return container;
                 }
+                return logicalParent;
             }
 
             ModularAvatarMenuGroup menuGroup =
@@ -668,6 +730,58 @@ namespace LyumaShader
             }
 
             return configuration.Root;
+        }
+
+        private static bool IsIncludedByMenuSource(
+            GameObject root,
+            GameObject menuItemObject
+        )
+        {
+            if(root == null ||
+                menuItemObject == null ||
+                menuItemObject.transform.parent == null)
+            {
+                return false;
+            }
+
+            Transform parent = menuItemObject.transform.parent;
+            foreach(ModularAvatarMenuItem item in
+                root.GetComponentsInChildren<ModularAvatarMenuItem>(true))
+            {
+                if(item == null ||
+                    item == menuItemObject.GetComponent<
+                        ModularAvatarMenuItem
+                    >() ||
+                    item.PortableControl == null ||
+                    item.PortableControl.Type != PortableControlType.SubMenu ||
+                    item.MenuSource != SubmenuSource.Children)
+                {
+                    continue;
+                }
+
+                GameObject container =
+                    item.menuSource_otherObjectChildren != null
+                        ? item.menuSource_otherObjectChildren
+                        : item.gameObject;
+                if(container != null && container.transform == parent)
+                {
+                    return true;
+                }
+            }
+
+            foreach(ModularAvatarMenuGroup group in
+                root.GetComponentsInChildren<ModularAvatarMenuGroup>(true))
+            {
+                if(group == null) continue;
+                GameObject container = group.targetObject != null
+                    ? group.targetObject
+                    : group.gameObject;
+                if(container != null && container.transform == parent)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static bool HasExistingToggle(GameObject root)
@@ -1097,6 +1211,9 @@ namespace LyumaShader
             internal readonly string ToggleMenuName;
             internal readonly Texture2D ToggleMenuIcon;
             internal readonly GameObject ToggleMenuParent;
+            internal readonly bool ToggleDefaultEnabled;
+            internal readonly bool ToggleSaved;
+            internal readonly bool ToggleSynced;
             internal readonly bool RepairRootBones;
             internal readonly bool ConvertStaticMeshes;
             internal readonly bool ProtectParticleMaterials;
@@ -1115,6 +1232,9 @@ namespace LyumaShader
                 ToggleMenuName = component.ToggleMenuName;
                 ToggleMenuIcon = component.ToggleMenuIcon;
                 ToggleMenuParent = component.ToggleMenuParent;
+                ToggleDefaultEnabled = component.ToggleDefaultEnabled;
+                ToggleSaved = component.ToggleSaved;
+                ToggleSynced = component.ToggleSynced;
                 RepairRootBones = component.RepairRootBones;
                 ConvertStaticMeshes = component.ConvertStaticMeshes;
                 ProtectParticleMaterials =

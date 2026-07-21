@@ -1179,46 +1179,101 @@ namespace LyumaShader
         )
         {
             EditorGUI.indentLevel++;
+            ModularAvatarMenuItem directMenuItem =
+                GetDirectToggleMenuItem(configuration.ToggleMenuParent);
+            bool useDirectMenuItem = directMenuItem != null;
+            EditorGUI.BeginDisabledGroup(useDirectMenuItem);
             EditorGUI.BeginChangeCheck();
-            string displayedName = string.Equals(
-                configuration.ToggleMenuName,
-                ToggleDisplayName,
-                StringComparison.Ordinal
-            )
-                ? string.Empty
-                : configuration.ToggleMenuName;
+            string displayedName = useDirectMenuItem
+                ? string.IsNullOrEmpty(directMenuItem.label)
+                    ? directMenuItem.gameObject.name
+                    : directMenuItem.label
+                : string.Equals(
+                    configuration.ToggleMenuName,
+                    ToggleDisplayName,
+                    StringComparison.Ordinal
+                )
+                    ? string.Empty
+                    : configuration.ToggleMenuName;
             string newName = EditorGUILayout.TextField(
                 new GUIContent(
                     "菜单名称",
-                    "留空时使用默认的 2D 富文本名称。"
+                    "工具生成 Menu Item 时使用；留空时使用默认的 2D 富文本名称。直接复用 Menu Item 时保留它原有的名称。"
                 ),
                 displayedName
             );
+            Texture2D displayedIcon = useDirectMenuItem &&
+                directMenuItem.PortableControl != null
+                    ? directMenuItem.PortableControl.Icon
+                    : configuration.ToggleMenuIcon;
             Texture2D newIcon = (Texture2D)EditorGUILayout.ObjectField(
                 new GUIContent(
                     "菜单图标",
-                    "留空时使用包内的默认透明图片。"
+                    "工具生成 Menu Item 时使用；留空时使用包内的默认透明图片。直接复用 Menu Item 时保留它原有的图标。"
                 ),
-                configuration.ToggleMenuIcon,
+                displayedIcon,
                 typeof(Texture2D),
                 false
             );
+            bool displayedDefaultEnabled = useDirectMenuItem
+                ? directMenuItem.isDefault
+                : configuration.ToggleDefaultEnabled;
+            bool displayedSaved = useDirectMenuItem
+                ? directMenuItem.isSaved
+                : configuration.ToggleSaved;
+            bool displayedSynced = useDirectMenuItem
+                ? directMenuItem.isSynced
+                : configuration.ToggleSynced;
+            EditorGUILayout.BeginHorizontal();
+            bool newDefaultEnabled = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "默认启用",
+                    "生成的 2D 开关是否默认开启。"
+                ),
+                displayedDefaultEnabled
+            );
+            bool newSaved = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "保存",
+                    "是否在切换 Avatar 后保存参数状态。"
+                ),
+                displayedSaved
+            );
+            bool newSynced = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "同步",
+                    "是否通过网络同步参数状态。"
+                ),
+                displayedSynced
+            );
+            EditorGUILayout.EndHorizontal();
             if(EditorGUI.EndChangeCheck())
             {
                 RecordConfiguration(
                     configuration,
-                    "修改 Waifu2d 菜单外观"
+                    "修改 Waifu2d 菜单设置"
                 );
                 configuration.ToggleMenuName = newName;
                 configuration.ToggleMenuIcon = newIcon;
+                configuration.ToggleDefaultEnabled = newDefaultEnabled;
+                configuration.ToggleSaved = newSaved;
+                configuration.ToggleSynced = newSynced;
                 SaveConfiguration(configuration);
+            }
+            EditorGUI.EndDisabledGroup();
+            if(useDirectMenuItem)
+            {
+                EditorGUILayout.HelpBox(
+                    "当前直接复用 MA Menu Item；名称、类型、图标、默认启用、保存和同步使用原有设置。",
+                    MessageType.Info
+                );
             }
 
             EditorGUI.BeginChangeCheck();
             GameObject newParent = (GameObject)EditorGUILayout.ObjectField(
                 new GUIContent(
                     "菜单位置",
-                    "留空时安装到菜单根；也可以指定使用“子对象”作为来源的 MA 子菜单、MA Menu Group 或 MA Menu Installer。"
+                    "留空时安装到菜单根；指定 Sub Menu 时创建到其内部，其他 MA Menu Item 会被直接用作 2D 开关。也支持 MA Menu Group 或 MA Menu Installer。"
                 ),
                 configuration.ToggleMenuParent,
                 typeof(GameObject),
@@ -1234,17 +1289,46 @@ namespace LyumaShader
                     );
                     configuration.ToggleMenuParent = newParent;
                     SaveConfiguration(configuration);
+                    ModularAvatarMenuItem selectedMenuItem =
+                        newParent != null
+                            ? newParent.GetComponent<
+                                ModularAvatarMenuItem
+                            >()
+                            : null;
+                    bool isSubMenu = selectedMenuItem != null &&
+                        selectedMenuItem.PortableControl != null &&
+                        selectedMenuItem.PortableControl.Type ==
+                            PortableControlType.SubMenu;
+                    string statusMessage;
+                    if(newParent == null || newParent == modelRoot)
+                    {
+                        statusMessage =
+                            "2D 开关将安装到模型菜单根。";
+                    }
+                    else if(isSubMenu)
+                    {
+                        statusMessage =
+                            "2D 开关将在构建时创建到指定的 Sub Menu 内。";
+                    }
+                    else if(selectedMenuItem != null)
+                    {
+                        statusMessage =
+                            "构建时将直接使用指定的 MA Menu Item 作为 2D 开关。";
+                    }
+                    else
+                    {
+                        statusMessage =
+                            "2D 开关将生成到指定的 MA 菜单位置。";
+                    }
                     SetStatus(
-                        newParent == null
-                            ? "2D 开关将安装到模型菜单根。"
-                            : "2D 开关将生成到指定的 MA 菜单位置。",
+                        statusMessage,
                         MessageType.Info
                     );
                 }
                 else
                 {
                     SetStatus(
-                        "菜单位置必须位于当前模型内部，并且带有使用“子对象”作为来源的 MA Menu Item、MA Menu Group 或 MA Menu Installer。",
+                        "菜单位置必须位于当前模型内部，并且带有 MA Menu Item、MA Menu Group 或 MA Menu Installer。",
                         MessageType.Warning
                     );
                 }
@@ -1263,19 +1347,28 @@ namespace LyumaShader
             }
             if(candidate == modelRoot) return true;
 
-            ModularAvatarMenuItem menuItem =
-                candidate.GetComponent<ModularAvatarMenuItem>();
-            if(menuItem != null &&
-                menuItem.PortableControl != null &&
-                menuItem.PortableControl.Type == PortableControlType.SubMenu &&
-                menuItem.MenuSource == SubmenuSource.Children)
-            {
-                return true;
-            }
-            return candidate.GetComponent<ModularAvatarMenuGroup>() != null ||
+            return candidate.GetComponent<ModularAvatarMenuItem>() != null ||
+                candidate.GetComponent<ModularAvatarMenuGroup>() != null ||
                 candidate.GetComponent<
                     ModularAvatarMenuInstaller
                 >() != null;
+        }
+
+        private static ModularAvatarMenuItem GetDirectToggleMenuItem(
+            GameObject candidate
+        )
+        {
+            if(candidate == null) return null;
+            ModularAvatarMenuItem item =
+                candidate.GetComponent<ModularAvatarMenuItem>();
+            if(item == null ||
+                (item.PortableControl != null &&
+                    item.PortableControl.Type ==
+                        PortableControlType.SubMenu))
+            {
+                return null;
+            }
+            return item;
         }
 
         private void UpgradeLegacyConfiguration()

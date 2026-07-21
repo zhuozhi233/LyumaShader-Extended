@@ -54,6 +54,9 @@ namespace LyumaShader
         public string ToggleMenuName;
         public Texture2D ToggleMenuIcon;
         public GameObject ToggleMenuParent;
+        public bool ToggleDefaultEnabled;
+        public bool ToggleSaved = true;
+        public bool ToggleSynced = true;
         public bool RepairRootBones = true;
         public bool ConvertStaticMeshes = true;
         public bool ProtectParticleMaterials = true;

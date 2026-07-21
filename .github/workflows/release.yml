@@ -55,11 +55,10 @@ jobs:
             > [!IMPORTANT]
             > 从 1.x 升级时，直接安装最新版 2.x，再通过 `Tools > LyumaShader Extended > 从 1.x 升级到 2.x` 迁移旧模型。升级前不要求执行一键还原或删除旧版生成资源。
 
-            - 默认保护粒子材质，避免 `ParticleSystemRenderer` 使用 Waifu2d 后前后位置被压到世界原点
-            - 粒子独占的材质会跳过 Waifu2d 转换
-            - 粒子与普通网格共享材质时，会在构建阶段为粒子生成不带 2D 的独立副本
-            - 生成 2D 开关动画时会排除受保护的粒子渲染器
-            - 可在构建设置中关闭“保护粒子材质”，恢复原有处理方式
+            - 自定义菜单位置支持直接复用普通 MA Menu Item，不再强制创建子对象
+            - 选择 Sub Menu 时仍在其内部创建 2D 开关，并兼容“子对象”和“菜单资源”两种来源
+            - 直接复用 Menu Item 时保留其名称、类型、图标、默认启用、保存和同步设置
+            - 工具生成的 2D 开关新增“默认启用”“保存”和“同步”设置
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
