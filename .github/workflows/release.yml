@@ -48,7 +48,7 @@ jobs:
           name: "LyumaShader 扩展版 ${{ steps.version.outputs.version }}"
           draft: false
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
-          generate_release_notes: true
+          generate_release_notes: false
           body: |
             VPM/VCC 软件包。
 
