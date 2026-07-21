@@ -87,6 +87,12 @@ namespace LyumaShader
         {
             BuildState state = context.GetState<BuildState>();
             if(state.Configurations.Count == 0) return;
+            AnimatorServicesContext animatorServices =
+                context.Extension<AnimatorServicesContext>();
+            state.CaptureMaterialUsage(
+                context.AvatarRootObject,
+                animatorServices.AnimationIndex
+            );
 
             foreach(Renderer renderer in
                 context.AvatarRootObject.GetComponentsInChildren<Renderer>(true))
@@ -109,25 +115,15 @@ namespace LyumaShader
                 if(changed) renderer.sharedMaterials = materials;
             }
 
-            AnimatorServicesContext animatorServices =
-                context.Extension<AnimatorServicesContext>();
             animatorServices.AnimationIndex.RewriteObjectCurves((binding, value) =>
             {
                 Material material = value as Material;
                 if(material == null) return value;
 
-                Renderer renderer = null;
-                if(binding.type != null && typeof(Renderer).IsAssignableFrom(binding.type))
-                {
-                    Transform target = string.IsNullOrEmpty(binding.path)
-                        ? context.AvatarRootTransform
-                        : context.AvatarRootTransform.Find(binding.path);
-                    if(target != null)
-                    {
-                        renderer = target.GetComponent(binding.type) as Renderer;
-                        if(renderer == null) renderer = target.GetComponent<Renderer>();
-                    }
-                }
+                Renderer renderer = ResolveRenderer(
+                    context.AvatarRootTransform,
+                    binding
+                );
 
                 Material replacement = GetOrCreateConvertedMaterial(
                     context,
@@ -163,6 +159,18 @@ namespace LyumaShader
                 !rule.Convert)
             {
                 return source;
+            }
+
+            if(configuration.ProtectParticleMaterials &&
+                renderer is ParticleSystemRenderer)
+            {
+                return state.IsUsedByNonParticleRenderer(source)
+                    ? GetOrCreateParticleMaterialClone(
+                        context,
+                        state,
+                        source
+                    )
+                    : source;
             }
 
             Vector3 motchiriContactOffset =
@@ -241,6 +249,40 @@ namespace LyumaShader
             return clone;
         }
 
+        private static Material GetOrCreateParticleMaterialClone(
+            BuildContext context,
+            BuildState state,
+            Material source
+        )
+        {
+            Material existing;
+            if(state.ParticleClones.TryGetValue(source, out existing))
+            {
+                return existing;
+            }
+
+            int renderQueue = source.renderQueue;
+            Material clone;
+            if(source.isVariant)
+            {
+                clone = new Material(source.shader);
+                clone.CopyPropertiesFromMaterial(source);
+                clone.parent = null;
+            }
+            else
+            {
+                clone = new Material(source);
+            }
+
+            Shader originalShader = ResolveOriginalShader(source.shader);
+            if(originalShader != null) clone.shader = originalShader;
+            clone.name = source.name + " (Lyuma Particle Build)";
+            clone.renderQueue = renderQueue;
+            state.ParticleClones[source] = clone;
+            context.AssetSaver.SaveAsset(clone);
+            return clone;
+        }
+
         private static Shader ResolveTargetShader(
             Shader source,
             RuleSnapshot rule
@@ -271,6 +313,18 @@ namespace LyumaShader
             return LilToonWaifu2dAdapter.IsWaifu2dShader(shader) ||
                 GenericLilCustomWaifu2dAdapter.IsWaifu2dShader(shader) ||
                 PoiyomiWaifu2dAdapter.IsWaifu2dShader(shader);
+        }
+
+        private static Shader ResolveOriginalShader(Shader shader)
+        {
+            if(shader == null) return null;
+            Shader original = LilToonWaifu2dAdapter.GetOriginalShader(shader);
+            if(original != null) return original;
+            original =
+                GenericLilCustomWaifu2dAdapter.GetOriginalShader(shader);
+            return original != null
+                ? original
+                : PoiyomiWaifu2dAdapter.GetOriginalShader(shader);
         }
 
         private static void InitializeMaterial(Material material)
@@ -439,7 +493,10 @@ namespace LyumaShader
 
             List<Renderer> renderers = configuration.Root
                 .GetComponentsInChildren<Renderer>(true)
-                .Where(renderer => RendererUsesEnabledRule(renderer, state))
+                .Where(renderer =>
+                    !(configuration.ProtectParticleMaterials &&
+                        renderer is ParticleSystemRenderer) &&
+                    RendererUsesEnabledRule(renderer, state))
                 .ToList();
             if(renderers.Count == 0) return;
 
@@ -692,6 +749,29 @@ namespace LyumaShader
             return clip;
         }
 
+        private static Renderer ResolveRenderer(
+            Transform avatarRoot,
+            EditorCurveBinding binding
+        )
+        {
+            if(avatarRoot == null ||
+                binding.type == null ||
+                !typeof(Renderer).IsAssignableFrom(binding.type))
+            {
+                return null;
+            }
+
+            Transform target = string.IsNullOrEmpty(binding.path)
+                ? avatarRoot
+                : avatarRoot.Find(binding.path);
+            if(target == null) return null;
+            Renderer renderer =
+                target.GetComponent(binding.type) as Renderer;
+            return renderer != null
+                ? renderer
+                : target.GetComponent<Renderer>();
+        }
+
         private static bool RendererUsesMotchiriRule(
             Renderer renderer,
             BuildState state
@@ -867,9 +947,13 @@ namespace LyumaShader
                 new List<ConfigurationSnapshot>();
             internal readonly Dictionary<CloneKey, CloneRecord> Clones =
                 new Dictionary<CloneKey, CloneRecord>();
+            internal readonly Dictionary<Material, Material> ParticleClones =
+                new Dictionary<Material, Material>();
             internal readonly Dictionary<Renderer, Transform>
                 MotchiriContactAnchors =
                     new Dictionary<Renderer, Transform>();
+            private readonly HashSet<Material> materialsUsedByNonParticles =
+                new HashSet<Material>();
 
             internal void Capture(GameObject avatarRoot)
             {
@@ -880,6 +964,85 @@ namespace LyumaShader
                     if(component == null) continue;
                     Configurations.Add(new ConfigurationSnapshot(component));
                 }
+            }
+
+            internal void CaptureMaterialUsage(
+                GameObject avatarRoot,
+                AnimationIndex animationIndex
+            )
+            {
+                materialsUsedByNonParticles.Clear();
+                if(avatarRoot == null) return;
+
+                foreach(Renderer renderer in
+                    avatarRoot.GetComponentsInChildren<Renderer>(true))
+                {
+                    if(renderer == null) continue;
+                    foreach(Material material in renderer.sharedMaterials)
+                    {
+                        CaptureMaterialUsage(material, renderer);
+                    }
+                }
+
+                if(animationIndex == null) return;
+                animationIndex.RewriteObjectCurves((binding, value) =>
+                {
+                    Material material = value as Material;
+                    if(material == null) return value;
+                    Renderer renderer = ResolveRenderer(
+                        avatarRoot.transform,
+                        binding
+                    );
+                    CaptureMaterialUsage(material, renderer);
+                    return value;
+                });
+            }
+
+            internal bool IsUsedByNonParticleRenderer(Material material)
+            {
+                return materialsUsedByNonParticles.Contains(
+                    ResolveOriginalMaterial(material)
+                );
+            }
+
+            private void CaptureMaterialUsage(
+                Material material,
+                Renderer renderer
+            )
+            {
+                ConfigurationSnapshot configuration;
+                RuleSnapshot rule;
+                if(!TryFindRule(
+                        material,
+                        renderer,
+                        out configuration,
+                        out rule
+                    ) ||
+                    configuration == null ||
+                    rule == null ||
+                    !rule.Convert)
+                {
+                    return;
+                }
+
+                if(!(renderer is ParticleSystemRenderer))
+                {
+                    materialsUsedByNonParticles.Add(
+                        ResolveOriginalMaterial(material)
+                    );
+                }
+            }
+
+            private static Material ResolveOriginalMaterial(
+                Material material
+            )
+            {
+                if(material == null) return null;
+                var reference = ObjectRegistry.GetReference(material);
+                Material original = reference != null
+                    ? reference.Object as Material
+                    : null;
+                return original != null ? original : material;
             }
 
             internal bool TryFindRule(
@@ -936,6 +1099,7 @@ namespace LyumaShader
             internal readonly GameObject ToggleMenuParent;
             internal readonly bool RepairRootBones;
             internal readonly bool ConvertStaticMeshes;
+            internal readonly bool ProtectParticleMaterials;
 
             internal ConfigurationSnapshot(
                 LyumaWaifu2dAvatarConfig component
@@ -953,6 +1117,8 @@ namespace LyumaShader
                 ToggleMenuParent = component.ToggleMenuParent;
                 RepairRootBones = component.RepairRootBones;
                 ConvertStaticMeshes = component.ConvertStaticMeshes;
+                ProtectParticleMaterials =
+                    component.ProtectParticleMaterials;
 
                 if(component.Materials == null) return;
                 foreach(LyumaWaifu2dAvatarConfig.MaterialRule source in

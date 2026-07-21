@@ -11,6 +11,7 @@
 - 为每个材质单独决定是否转换，并可分别设置 2D 强度、朝向、锁定轴和 Z 深度修正。
 - 构建时生成 2D 开关、动画、BlendTree 与 Modular Avatar 菜单，并支持把开关安装到指定的 MA 子菜单、Menu Group 或 Menu Installer 目标。
 - 构建时修复 Root Bone，并把普通 `MeshRenderer + MeshFilter` 临时转换为单骨骼 `SkinnedMeshRenderer`。
+- 默认保护 `ParticleSystemRenderer`：粒子独占材质跳过 Waifu2d；与普通网格共享材质时，为粒子生成独立的非 2D 构建副本并从开关动画中排除。
 - 支持材质名称和 Shader 名称搜索；大量材质会分页显示。
 - 提供一键 1.x → 2.x 迁移，保留逐材质参数、Root Bone 和普通网格修复状态。
 

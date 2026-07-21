@@ -56,6 +56,7 @@ namespace LyumaShader
         public GameObject ToggleMenuParent;
         public bool RepairRootBones = true;
         public bool ConvertStaticMeshes = true;
+        public bool ProtectParticleMaterials = true;
 
         public MaterialRule FindRule(Material material)
         {

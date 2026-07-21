@@ -1150,6 +1150,27 @@ namespace LyumaShader
             if(EditorGUI.EndChangeCheck())
             {
                 SetStaticMeshBuildRepair(newConvertStaticMeshes);
+                configuration = GetConfiguration(false);
+            }
+
+            EditorGUILayout.Space(3.0f);
+            bool protectParticleMaterials =
+                configuration == null ||
+                configuration.ProtectParticleMaterials;
+            EditorGUI.BeginChangeCheck();
+            bool newProtectParticleMaterials =
+                EditorGUILayout.ToggleLeft(
+                    new GUIContent(
+                        "保护粒子材质",
+                        "粒子独占材质会跳过 Waifu2d；与普通网格共享的材质会为粒子生成不带 2D 的构建期副本，2D 开关动画也会跳过粒子。"
+                    ),
+                    protectParticleMaterials
+                );
+            if(EditorGUI.EndChangeCheck())
+            {
+                SetParticleMaterialProtection(
+                    newProtectParticleMaterials
+                );
             }
         }
 
@@ -2720,6 +2741,25 @@ namespace LyumaShader
                     ? "已启用 NDMF 普通网格修复；只转换使用已启用材质规则的构建副本网格。"
                     : "已停用 NDMF 普通网格修复。",
                 MessageType.Info
+            );
+        }
+
+        private void SetParticleMaterialProtection(bool enabled)
+        {
+            LyumaWaifu2dAvatarConfig configuration =
+                GetConfiguration(true);
+            if(configuration == null) return;
+            RecordConfiguration(
+                configuration,
+                "修改 Waifu2d 粒子材质保护"
+            );
+            configuration.ProtectParticleMaterials = enabled;
+            SaveConfiguration(configuration);
+            SetStatus(
+                enabled
+                    ? "已启用粒子材质保护；粒子独占材质会跳过转换，共享材质会在构建时为粒子分离非 2D 副本。"
+                    : "已关闭粒子材质保护；粒子将与普通网格一样应用 Waifu2d。",
+                enabled ? MessageType.Info : MessageType.Warning
             );
         }
 
