@@ -57,6 +57,7 @@ namespace LyumaShader
         public bool ToggleDefaultEnabled;
         public bool ToggleSaved = true;
         public bool ToggleSynced = true;
+        public bool PreviewIn2D;
         public bool RepairRootBones = true;
         public bool ConvertStaticMeshes = true;
         public bool ProtectParticleMaterials = true;

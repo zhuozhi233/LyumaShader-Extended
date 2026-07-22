@@ -230,7 +230,13 @@ namespace LyumaShader
             InitializeMaterial(clone);
             clone.renderQueue = renderQueue;
 
-            SetFloatIfPresent(clone, "_2d_coef", rule.TwoDimensionalness);
+            SetFloatIfPresent(
+                clone,
+                "_2d_coef",
+                configuration.PreviewIn2D
+                    ? rule.TwoDimensionalness
+                    : 0.0f
+            );
             SetFloatIfPresent(clone, "_facing_coef", rule.FacingDirection);
             SetFloatIfPresent(clone, "_lock2daxis_coef", rule.LockAxis);
             SetFloatIfPresent(clone, "_zcorrect_coef", rule.SquashZ);
@@ -1227,6 +1233,7 @@ namespace LyumaShader
             internal readonly bool ToggleDefaultEnabled;
             internal readonly bool ToggleSaved;
             internal readonly bool ToggleSynced;
+            internal readonly bool PreviewIn2D;
             internal readonly bool RepairRootBones;
             internal readonly bool ConvertStaticMeshes;
             internal readonly bool ProtectParticleMaterials;
@@ -1248,6 +1255,7 @@ namespace LyumaShader
                 ToggleDefaultEnabled = component.ToggleDefaultEnabled;
                 ToggleSaved = component.ToggleSaved;
                 ToggleSynced = component.ToggleSynced;
+                PreviewIn2D = component.PreviewIn2D;
                 RepairRootBones = component.RepairRootBones;
                 ConvertStaticMeshes = component.ConvertStaticMeshes;
                 ProtectParticleMaterials =

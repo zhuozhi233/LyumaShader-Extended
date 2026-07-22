@@ -1099,6 +1099,23 @@ namespace LyumaShader
                 );
             }
 
+            bool previewIn2D = configuration != null &&
+                configuration.PreviewIn2D;
+            EditorGUI.BeginChangeCheck();
+            bool newPreviewIn2D = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "预览显示 2D",
+                    "控制 NDMF 构建与游戏预览中生成材质的默认状态。开启时使用每个材质配置的 2D 强度，关闭时使用 0；不会修改 2D 开关动画的数值。"
+                ),
+                previewIn2D
+            );
+            if(EditorGUI.EndChangeCheck())
+            {
+                SetPreviewIn2D(newPreviewIn2D);
+                configuration = GetConfiguration(false);
+            }
+
+            EditorGUILayout.Space(3.0f);
             bool generateToggle = configuration != null &&
                 configuration.GenerateToggle;
             EditorGUI.BeginChangeCheck();
@@ -1155,7 +1172,7 @@ namespace LyumaShader
 
             EditorGUILayout.Space(3.0f);
             bool protectParticleMaterials =
-                configuration == null ||
+                configuration != null &&
                 configuration.ProtectParticleMaterials;
             EditorGUI.BeginChangeCheck();
             bool newProtectParticleMaterials =
@@ -2822,6 +2839,21 @@ namespace LyumaShader
             );
         }
 
+        private void SetPreviewIn2D(bool enabled)
+        {
+            LyumaWaifu2dAvatarConfig configuration = GetConfiguration(true);
+            if(configuration == null) return;
+            RecordConfiguration(configuration, "修改 Waifu2d 预览默认状态");
+            configuration.PreviewIn2D = enabled;
+            SaveConfiguration(configuration);
+            SetStatus(
+                enabled
+                    ? "预览材质默认使用各材质配置的 2D 强度。"
+                    : "预览材质的默认 2D 强度已设为 0。",
+                MessageType.Info
+            );
+        }
+
         private void SetStaticMeshBuildRepair(bool enabled)
         {
             LyumaWaifu2dAvatarConfig configuration = GetConfiguration(true);
@@ -2866,7 +2898,7 @@ namespace LyumaShader
             SetStatus(
                 enabled
                     ? "已启用构建期 2D 开关。动画、BlendTree 和菜单会由 NDMF 临时生成。"
-                    : "已停用构建期 2D 开关；构建材质会一直使用配置的 2D 强度。",
+                    : "已停用构建期 2D 开关；构建材质会使用预览默认状态。",
                 MessageType.Info
             );
         }
