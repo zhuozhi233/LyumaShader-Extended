@@ -55,9 +55,9 @@ jobs:
             > [!IMPORTANT]
             > 从 1.x 升级时，直接安装最新版 2.x，再通过 `Tools > LyumaShader Extended > 从 1.x 升级到 2.x` 迁移旧模型。升级前不要求执行一键还原或删除旧版生成资源。
 
-            - 构建设置新增“预览显示 2D”，可切换生成材质的预览默认状态
-            - 开启时使用各材质配置的 2D 强度，关闭时默认使用 0
-            - 预览显示 2D 默认关闭，未选择模型时相关选项保持关闭显示
+            - 修复部分较旧 Modular Avatar 版本中 `AvatarObjectReference` 构造函数不兼容导致的编译错误
+            - 最低依赖版本调整为 Modular Avatar 1.13.0、NDMF 1.8.0；VCC 会在版本不足时提示更新
+            - 最低版本仅表示兼容下限，不会锁定依赖的具体版本
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip

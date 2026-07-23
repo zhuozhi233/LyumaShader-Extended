@@ -3638,7 +3638,8 @@ namespace LyumaShader
             Transform target
         )
         {
-            var reference = new AvatarObjectReference(target.gameObject);
+            var reference = new AvatarObjectReference();
+            reference.Set(target.gameObject);
             if(string.IsNullOrEmpty(reference.referencePath))
             {
                 reference.referencePath = AnimationUtility.CalculateTransformPath(
