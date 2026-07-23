@@ -81,8 +81,8 @@
 - Unity `2022.3`
 - lilToon `2.3.4`
 - Poiyomi `9.3.64`
-- Modular Avatar `1.13.0`
-- NDMF `1.8.0`
+- Modular Avatar `1.17.1`
+- NDMF `1.14.1`
 
 除“最低依赖版本”中列出的下限外，测试环境中的具体版本不是强制要求。
 
