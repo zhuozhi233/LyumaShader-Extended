@@ -56,6 +56,7 @@ jobs:
             > 从 1.x 升级时，直接安装最新版 2.x，再通过 `Tools > LyumaShader Extended > 从 1.x 升级到 2.x` 迁移旧模型。升级前不要求执行一键还原或删除旧版生成资源。
 
             - 修复部分较旧 Modular Avatar 版本中 `AvatarObjectReference` 构造函数不兼容导致的编译错误
+            - 修复无骨骼 SkinnedMeshRenderer 自动设置 Hips 后位置偏移的问题，并保留形态键
             - 最低依赖版本调整为 Modular Avatar 1.13.0、NDMF 1.8.0；VCC 会在版本不足时提示更新
             - 最低版本仅表示兼容下限，不会锁定依赖的具体版本
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装

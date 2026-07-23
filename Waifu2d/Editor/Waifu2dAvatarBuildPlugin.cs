@@ -62,7 +62,7 @@ namespace LyumaShader
                 Transform hips = FindHips(context.AvatarRootObject);
                 if(configuration.RepairRootBones && hips != null)
                 {
-                    RepairRootBones(configuration.Root, hips, state);
+                    RepairRootBones(context, configuration.Root, hips, state);
                 }
 
                 if(configuration.ConvertStaticMeshes)
@@ -997,12 +997,13 @@ namespace LyumaShader
         }
 
         private static void RepairRootBones(
+            BuildContext context,
             GameObject root,
             Transform hips,
             BuildState state
         )
         {
-            if(root == null || hips == null) return;
+            if(context == null || root == null || hips == null) return;
             foreach(SkinnedMeshRenderer renderer in
                 root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
@@ -1010,6 +1011,28 @@ namespace LyumaShader
                 Transform previousRoot = renderer.rootBone != null
                     ? renderer.rootBone
                     : renderer.transform;
+                if(renderer.rootBone == null &&
+                    !HasUsableBones(renderer) &&
+                    renderer.sharedMesh != null)
+                {
+                    Mesh mesh = Object.Instantiate(renderer.sharedMesh);
+                    mesh.name =
+                        renderer.sharedMesh.name + "_Waifu2dSingleBone";
+                    var weights = new BoneWeight[mesh.vertexCount];
+                    for(int i = 0; i < weights.Length; i++)
+                    {
+                        weights[i] = new BoneWeight
+                        {
+                            boneIndex0 = 0,
+                            weight0 = 1.0f
+                        };
+                    }
+                    mesh.boneWeights = weights;
+                    mesh.bindposes = new[] { Matrix4x4.identity };
+                    renderer.sharedMesh = mesh;
+                    renderer.bones = new[] { renderer.transform };
+                    context.AssetSaver.SaveAsset(mesh);
+                }
                 renderer.localBounds = TransformBounds(
                     renderer.localBounds,
                     hips.worldToLocalMatrix * previousRoot.localToWorldMatrix
@@ -1048,6 +1071,16 @@ namespace LyumaShader
                 reference.Set(hips.gameObject);
                 settings.RootBone = reference;
             }
+        }
+
+        private static bool HasUsableBones(SkinnedMeshRenderer renderer)
+        {
+            if(renderer == null || renderer.bones == null) return false;
+            foreach(Transform bone in renderer.bones)
+            {
+                if(bone != null) return true;
+            }
+            return false;
         }
 
         private static Bounds TransformBounds(
