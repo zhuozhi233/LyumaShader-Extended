@@ -607,7 +607,8 @@ namespace LyumaShader
             menuItem.PortableControl.Parameter = ToggleParameterName;
             menuItem.PortableControl.Value = 1.0f;
             menuItem.automaticValue = true;
-            if(selectedMenuItem == null)
+            if(selectedMenuItem == null ||
+                configuration.OverrideDirectMenuItemSettings)
             {
                 menuItem.label = toggleDisplayName;
                 menuItem.PortableControl.Type = PortableControlType.Toggle;
@@ -1263,6 +1264,7 @@ namespace LyumaShader
             internal readonly string ToggleMenuName;
             internal readonly Texture2D ToggleMenuIcon;
             internal readonly GameObject ToggleMenuParent;
+            internal readonly bool OverrideDirectMenuItemSettings;
             internal readonly bool ToggleDefaultEnabled;
             internal readonly bool ToggleSaved;
             internal readonly bool ToggleSynced;
@@ -1285,6 +1287,8 @@ namespace LyumaShader
                 ToggleMenuName = component.ToggleMenuName;
                 ToggleMenuIcon = component.ToggleMenuIcon;
                 ToggleMenuParent = component.ToggleMenuParent;
+                OverrideDirectMenuItemSettings =
+                    component.OverrideDirectMenuItemSettings;
                 ToggleDefaultEnabled = component.ToggleDefaultEnabled;
                 ToggleSaved = component.ToggleSaved;
                 ToggleSynced = component.ToggleSynced;

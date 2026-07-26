@@ -54,6 +54,7 @@ namespace LyumaShader
         public string ToggleMenuName;
         public Texture2D ToggleMenuIcon;
         public GameObject ToggleMenuParent;
+        public bool OverrideDirectMenuItemSettings;
         public bool ToggleDefaultEnabled;
         public bool ToggleSaved = true;
         public bool ToggleSynced = true;

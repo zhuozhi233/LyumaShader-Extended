@@ -1199,9 +1199,14 @@ namespace LyumaShader
             ModularAvatarMenuItem directMenuItem =
                 GetDirectToggleMenuItem(configuration.ToggleMenuParent);
             bool useDirectMenuItem = directMenuItem != null;
-            EditorGUI.BeginDisabledGroup(useDirectMenuItem);
+            bool useMenuItemSettings =
+                !configuration.OverrideDirectMenuItemSettings;
+
+            bool displayMenuItemSettings =
+                useDirectMenuItem && useMenuItemSettings;
+            EditorGUI.BeginDisabledGroup(displayMenuItemSettings);
             EditorGUI.BeginChangeCheck();
-            string displayedName = useDirectMenuItem
+            string displayedName = displayMenuItemSettings
                 ? string.IsNullOrEmpty(directMenuItem.label)
                     ? directMenuItem.gameObject.name
                     : directMenuItem.label
@@ -1215,30 +1220,30 @@ namespace LyumaShader
             string newName = EditorGUILayout.TextField(
                 new GUIContent(
                     "菜单名称",
-                    "工具生成 Menu Item 时使用；留空时使用默认的 2D 富文本名称。直接复用 Menu Item 时保留它原有的名称。"
+                    "留空时使用默认的 2D 富文本名称。直接复用 Menu Item 且关闭“使用这个组件的参数”时，会在构建副本中用此名称覆盖它。"
                 ),
                 displayedName
             );
-            Texture2D displayedIcon = useDirectMenuItem &&
+            Texture2D displayedIcon = displayMenuItemSettings &&
                 directMenuItem.PortableControl != null
                     ? directMenuItem.PortableControl.Icon
                     : configuration.ToggleMenuIcon;
             Texture2D newIcon = (Texture2D)EditorGUILayout.ObjectField(
                 new GUIContent(
                     "菜单图标",
-                    "工具生成 Menu Item 时使用；留空时使用包内的默认透明图片。直接复用 Menu Item 时保留它原有的图标。"
+                    "留空时使用包内的默认透明图片。直接复用 Menu Item 且关闭“使用这个组件的参数”时，会在构建副本中用此图标覆盖它。"
                 ),
                 displayedIcon,
                 typeof(Texture2D),
                 false
             );
-            bool displayedDefaultEnabled = useDirectMenuItem
+            bool displayedDefaultEnabled = displayMenuItemSettings
                 ? directMenuItem.isDefault
                 : configuration.ToggleDefaultEnabled;
-            bool displayedSaved = useDirectMenuItem
+            bool displayedSaved = displayMenuItemSettings
                 ? directMenuItem.isSaved
                 : configuration.ToggleSaved;
-            bool displayedSynced = useDirectMenuItem
+            bool displayedSynced = displayMenuItemSettings
                 ? directMenuItem.isSynced
                 : configuration.ToggleSynced;
             EditorGUILayout.BeginHorizontal();
@@ -1278,14 +1283,8 @@ namespace LyumaShader
                 SaveConfiguration(configuration);
             }
             EditorGUI.EndDisabledGroup();
-            if(useDirectMenuItem)
-            {
-                EditorGUILayout.HelpBox(
-                    "当前直接复用 MA Menu Item；名称、类型、图标、默认启用、保存和同步使用原有设置。",
-                    MessageType.Info
-                );
-            }
 
+            EditorGUILayout.BeginHorizontal();
             EditorGUI.BeginChangeCheck();
             GameObject newParent = (GameObject)EditorGUILayout.ObjectField(
                 new GUIContent(
@@ -1296,7 +1295,36 @@ namespace LyumaShader
                 typeof(GameObject),
                 true
             );
-            if(EditorGUI.EndChangeCheck())
+            bool menuParentChanged = EditorGUI.EndChangeCheck();
+            bool menuSettingsSourceChanged = false;
+            if(useDirectMenuItem)
+            {
+                EditorGUI.BeginChangeCheck();
+                useMenuItemSettings = EditorGUILayout.ToggleLeft(
+                    new GUIContent(
+                        "使用这个组件的参数",
+                        "启用时保留拖入的 MA Menu Item 的名称、类型、图标、默认启用、保存和同步设置；关闭时改用配置工具中的设置。两种模式都会直接复用这个 Menu Item。"
+                    ),
+                    useMenuItemSettings,
+                    GUILayout.Width(155.0f)
+                );
+                menuSettingsSourceChanged =
+                    EditorGUI.EndChangeCheck();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if(menuSettingsSourceChanged)
+            {
+                RecordConfiguration(
+                    configuration,
+                    "修改 Waifu2d 菜单参数来源"
+                );
+                configuration.OverrideDirectMenuItemSettings =
+                    !useMenuItemSettings;
+                SaveConfiguration(configuration);
+            }
+
+            if(menuParentChanged)
             {
                 if(IsValidToggleMenuParent(newParent))
                 {
@@ -1349,6 +1377,20 @@ namespace LyumaShader
                         MessageType.Warning
                     );
                 }
+            }
+
+            directMenuItem =
+                GetDirectToggleMenuItem(configuration.ToggleMenuParent);
+            if(directMenuItem != null)
+            {
+                useMenuItemSettings =
+                    !configuration.OverrideDirectMenuItemSettings;
+                EditorGUILayout.HelpBox(
+                    useMenuItemSettings
+                        ? "当前直接复用 MA Menu Item；名称、类型、图标、默认启用、保存和同步使用组件原有设置。"
+                        : "当前直接复用 MA Menu Item；构建时会用配置工具中的名称、图标、默认启用、保存和同步设置覆盖该组件，并将类型设为 Toggle。不会生成独立的 Menu Item。",
+                    MessageType.Info
+                );
             }
             EditorGUI.indentLevel--;
         }

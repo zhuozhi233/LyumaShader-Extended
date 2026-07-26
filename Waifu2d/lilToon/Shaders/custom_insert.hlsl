@@ -72,49 +72,11 @@ void LyumaWaifu2dApply(inout lilVertexPositionInputs vertexInput, float3 positio
             lilTransformOStoWS(float3(0.0, 0.0, 0.0)));
     #endif
     #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
-        // Very close to the camera, even a partially retained Z Bias can move a
-        // large outline triangle back into the visible frustum. The cutoff must
-        // be uniform for the whole renderer: a per-vertex cutoff is interpolated
-        // across the triangle and can stretch its back-facing side into a large
-        // solid patch.
-        if(lilIsPerspective() && waifu_coef > 1.0e-6)
-        {
-            // abs() makes approaching the flattened plane from its front or back
-            // use the same safety rule. Object-space scale is also evaluated
-            // uniformly instead of deriving the threshold from each vertex's
-            // view direction.
-            float viewDepth = abs(objectOriginVS.z);
-            float nearClip = max(0.00001, _ProjectionParams.y);
-            float maxObjectScale = max(
-                length(mul((float3x3)unity_ObjectToWorld, float3(1.0, 0.0, 0.0))),
-                max(
-                    length(mul((float3x3)unity_ObjectToWorld, float3(0.0, 1.0, 0.0))),
-                    length(mul((float3x3)unity_ObjectToWorld, float3(0.0, 0.0, 1.0)))));
-            float biasWorldDistance = abs(_OutlineZBias) * maxObjectScale;
-            float safeDepth = nearClip + max(0.15, biasWorldDistance * 4.0);
-            outlineZBiasSafeFactor = step(safeDepth, viewDepth);
-        }
-
-        // A two-sided main surface paired with lilToon's front-culled outline
-        // reverses which outline faces are exposed when a flattened model is
-        // viewed from behind. Any non-zero depth separation can then reveal a
-        // large interior outline patch. In 2D, make rear views behave exactly
-        // like Outline Z Bias = 0 while preserving the front-view setting.
-        if(waifu_coef > 0.1 && _Cull == 0)
-        {
-            // Switch a little before the exact side-on boundary. At zero, a
-            // camera or mirror moving across the boundary can leave one frame
-            // where an unstable rear shell is still visible. Normalize in the
-            // horizontal plane so the margin is angular and distance-independent.
-            float cameraHorizontalDistance = max(
-                length(cameraPosInObjectSpace.xz),
-                1.0e-5);
-            float cameraFacingSide = dot(
-                cameraPosInObjectSpace,
-                targetCameraPosFacingVec) / cameraHorizontalDistance;
-            outlineZBiasSafeFactor *= step(0.1, cameraFacingSide);
-        }
-
+        // Preserve lilToon's normal outline extrusion, but disable only its
+        // view-direction Z Bias whenever Waifu2d is active. This avoids exposing
+        // interior outline faces without suppressing the outline pass itself.
+        outlineZBiasSafeFactor =
+            1.0 - step(1.0e-6, waifu_coef);
         stableWorldOffset += remainingOutlineBiasWS * outlineZBiasSafeFactor;
     #endif
 
@@ -263,24 +225,6 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
             {
                 vertexInput.positionCS +=
                     originalFakeShadowShiftCS - adjustedFakeShadowShiftCS;
-            }
-        #endif
-
-        #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
-            // Flattening a two-sided surface makes its front and rear shells
-            // coplanar. From the model's rear, lilToon's front-culled outline can
-            // then expose interior triangles; width masks, fixed width, lighting,
-            // ZTest, ZWrite, and Z Bias only change the shape or intensity of the
-            // resulting flashing patches. Cull the rear outline as one uniform
-            // renderer-level decision while leaving the main two-sided surface
-            // untouched.
-            if(waifu_coef > 0.1
-                && _Cull == 0
-                && dot(cameraPosInObjectSpace, targetCameraPosFacingVec)
-                    < length(cameraPosInObjectSpace.xz) * 0.1)
-            {
-                // Outside both D3D's [0,w] and OpenGL's [-w,w] clip ranges.
-                vertexInput.positionCS = float4(0.0, 0.0, -2.0, 1.0);
             }
         #endif
 

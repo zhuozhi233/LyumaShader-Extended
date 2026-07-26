@@ -9,7 +9,7 @@
 - 保留原版 LyumaShader 与 Poiyomi 支持，并新增官方 lilToon 适配。
 - 扫描模型当前材质、动画换材质和组件引用的备用材质。
 - 为每个材质单独决定是否转换，并可分别设置 2D 强度、朝向、锁定轴和 Z 深度修正。
-- 构建时生成 2D 开关、动画、BlendTree 与 Modular Avatar 菜单；指定 Sub Menu 时创建到其内部，其他 MA Menu Item 可直接复用并保留原有菜单设置。工具生成的开关可独立设置默认启用、保存和同步。
+- 构建时生成 2D 开关、动画、BlendTree 与 Modular Avatar 菜单；指定 Sub Menu 时创建到其内部，其他 MA Menu Item 可直接复用，并可选择保留组件原有设置或用配置工具中的名称、图标、默认启用、保存和同步设置覆盖。
 - 构建时修复 Root Bone，并把普通 `MeshRenderer + MeshFilter` 临时转换为单骨骼 `SkinnedMeshRenderer`。
 - 默认保护 `ParticleSystemRenderer`：粒子独占材质跳过 Waifu2d；与普通网格共享材质时，为粒子生成独立的非 2D 构建副本并从开关动画中排除。
 - 支持材质名称和 Shader 名称搜索；大量材质会分页显示。
