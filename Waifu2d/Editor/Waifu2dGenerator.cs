@@ -474,14 +474,34 @@ namespace LyumaShader {
                 shaderData [cgIncludeLineNum] = cgIncludeLine.Substring (0, cgIncludeSkip) + cgIncludeAdd + cgIncludeLine.Substring (cgIncludeSkip);
             }
 
+            if (isPoiyomiSource) {
+                const string outlinePassPatch =
+                    "\n            #undef UnityObjectToClipPos" +
+                    "\n            #undef UnityWorldToClipPos" +
+                    "\n            #define UnityObjectToClipPos waifu_projectOutlineVertexWorldPos" +
+                    "\n            #define UnityWorldToClipPos waifu_projectOutlineVertexFromWorldPos";
+                for (int i = 0; i < shaderData.Length; i++) {
+                    if (shaderData [i].Trim ().Equals (
+                        "#define POI_PASS_OUTLINE",
+                        StringComparison.Ordinal))
+                    {
+                        shaderData [i] += outlinePassPatch;
+                    }
+                }
+            }
+
             string epLine = shaderData [beginPropertiesLineNum];
             string lockAttribute = isPoiyomiSource ? "[DoNotLock]" : "";
+            string outlineToggleAttribute = isPoiyomiSource
+                ? "[ToggleUI]"
+                : "[Toggle]";
             string propertiesAdd = "\n" +
                 "        // Waifu2d Properties::\n" +
                 "        " + lockAttribute + "_2d_coef (\"Twodimensionalness\", Range(0, 1)) = 0.99\n" +
                 "        " + lockAttribute + "_facing_coef (\"Face in Profile\", Range (-1, 1)) = 0.0\n" +
                 "        " + lockAttribute + "_lock2daxis_coef (\"Lock 2d Axis\", Range (0, 1)) = " + (vr2d ? "0.0" : "1.0") + "\n" +
-                "        " + lockAttribute + "_zcorrect_coef (\"Squash Z (recommended=1; stable flattened depth)\", Float) = " + (vr2d ? "0.0" : "1.0") + "\n";
+                "        " + lockAttribute + "_zcorrect_coef (\"Squash Z (recommended=1; stable flattened depth)\", Float) = " + (vr2d ? "0.0" : "1.0") + "\n" +
+                "        " + lockAttribute + outlineToggleAttribute + "_lyuma_outline_2d (\"Enable Outline In 2D / 启用 2D 轮廓\", Float) = 1.0\n";
             epLine = epLine.Substring (0, beginPropertiesSkip) + propertiesAdd + epLine.Substring (beginPropertiesSkip);
             shaderData [beginPropertiesLineNum] = epLine;
 

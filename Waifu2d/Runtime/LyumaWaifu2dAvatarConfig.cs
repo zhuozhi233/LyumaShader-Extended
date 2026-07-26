@@ -22,6 +22,12 @@ namespace LyumaShader
             public bool EnableCustomLogicIn2D;
             public bool FlattenMaterialVariant = true;
             public bool OverrideParameters;
+            public bool UseGlobalTwoDimensionalness;
+            public bool UseGlobalFacingDirection;
+            public bool UseGlobalLockAxis;
+            public bool UseGlobalSquashZ;
+            public bool OverrideOutlineIn2D;
+            public bool DisableOutlineIn2D;
 
             [Range(0.0f, 1.0f)]
             public float TwoDimensionalness = 0.99f;
@@ -50,6 +56,7 @@ namespace LyumaShader
         [Range(0.0f, 1.0f)]
         public float SquashZ = 1.0f;
 
+        public bool DisableOutlineIn2D;
         public bool GenerateToggle = true;
         public string ToggleMenuName;
         public Texture2D ToggleMenuIcon;

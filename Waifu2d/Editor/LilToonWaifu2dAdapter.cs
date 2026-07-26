@@ -178,6 +178,7 @@ namespace LyumaShader
             material.SetFloat("_facing_coef", 0.0f);
             material.SetFloat("_lock2daxis_coef", 1.0f);
             material.SetFloat("_zcorrect_coef", 1.0f);
+            material.SetFloat("_lyuma_outline_2d", 1.0f);
         }
 
         private static Dictionary<string, string> BuildReverseMap()
@@ -201,6 +202,7 @@ namespace LyumaShader
         private MaterialProperty facingDirection;
         private MaterialProperty lockAxis;
         private MaterialProperty squashZ;
+        private MaterialProperty outlineIn2D;
         private static bool showWaifu2d = true;
 
         protected override void LoadCustomProperties(MaterialProperty[] props, Material material)
@@ -213,6 +215,7 @@ namespace LyumaShader
             facingDirection = FindProperty("_facing_coef", props);
             lockAxis = FindProperty("_lock2daxis_coef", props);
             squashZ = FindProperty("_zcorrect_coef", props);
+            outlineIn2D = FindProperty("_lyuma_outline_2d", props);
         }
 
         protected override void DrawCustomProperties(Material material)
@@ -227,9 +230,29 @@ namespace LyumaShader
             m_MaterialEditor.ShaderProperty(facingDirection, "Facing Direction / 朝向");
             m_MaterialEditor.ShaderProperty(lockAxis, "Lock 2D Axis / 锁定 2D 轴");
             m_MaterialEditor.ShaderProperty(squashZ, "Squash Z / Z 深度修正");
+            DrawBooleanProperty(
+                outlineIn2D,
+                "Enable Outline In 2D / 启用 2D 轮廓"
+            );
             EditorGUILayout.HelpBox("Recommended Squash Z / 推荐 Z 深度修正: 1.0", MessageType.Info);
             EditorGUILayout.EndVertical();
             EditorGUILayout.EndVertical();
+        }
+
+        private static void DrawBooleanProperty(
+            MaterialProperty property,
+            string label
+        )
+        {
+            EditorGUI.showMixedValue = property.hasMixedValue;
+            EditorGUI.BeginChangeCheck();
+            bool value = EditorGUILayout.ToggleLeft(
+                label,
+                property.floatValue >= 0.5f
+            );
+            if(EditorGUI.EndChangeCheck())
+                property.floatValue = value ? 1.0f : 0.0f;
+            EditorGUI.showMixedValue = false;
         }
 
         protected override void ReplaceToCustomShaders()

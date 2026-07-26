@@ -231,6 +231,15 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
         vertexInput.positionSS = lilTransformCStoSS(vertexInput.positionCS);
     }
 
+    #if defined(LYUMA_OUTLINE_ZBIAS_CLIPSPACE)
+        if(waifu_coef > 1.0e-6 && _lyuma_outline_2d < 0.5)
+        {
+            vertexInput.positionCS = float4(2.0, 2.0, -2.0, 1.0);
+            vertexInput.positionSS =
+                lilTransformCStoSS(vertexInput.positionCS);
+        }
+    #endif
+
     return vertexInput;
 }
 

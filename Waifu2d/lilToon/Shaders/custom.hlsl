@@ -9,6 +9,7 @@
     float _facing_coef; \
     float _lock2daxis_coef; \
     float _zcorrect_coef; \
+    float _lyuma_outline_2d; \
     float _lyuma_custom_logic_2d;
 
 #define LIL_CUSTOM_TEXTURES

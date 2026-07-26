@@ -71,7 +71,15 @@ namespace LyumaShader
         internal static Shader GetWaifu2dShader(Shader source)
         {
             if(source == null) return null;
-            if(IsWaifu2dShader(source)) return source;
+            if(IsWaifu2dShader(source))
+            {
+                if(source.FindPropertyIndex("_lyuma_outline_2d") >= 0)
+                    return source;
+                Shader original = GetOriginalShader(source);
+                return original != null
+                    ? GetWaifu2dShader(original)
+                    : source;
+            }
             if(!IsPoiyomiShader(source)) return null;
 
             int sourceId = source.GetInstanceID();
@@ -123,6 +131,7 @@ namespace LyumaShader
             material.SetFloat("_facing_coef", 0.0f);
             material.SetFloat("_lock2daxis_coef", 1.0f);
             material.SetFloat("_zcorrect_coef", 1.0f);
+            material.SetFloat("_lyuma_outline_2d", 1.0f);
             material.SetOverrideTag(
                 "_2d_coef" + AnimatedTagSuffix,
                 "1"

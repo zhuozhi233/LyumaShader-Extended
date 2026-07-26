@@ -12,6 +12,7 @@ uniform float _2d_coef;
 uniform float _facing_coef;
 uniform float _lock2daxis_coef;
 uniform float _zcorrect_coef;
+uniform float _lyuma_outline_2d;
 #endif
 
 float nonzeroify(float inp) {
@@ -200,6 +201,28 @@ float4 waifu_projectVertexWorldPos(float3 inVertex) {
 float4 waifu_projectVertexFromWorldPos(float3 inVertex) {
     inVertex = mul(unity_WorldToObject, float4(inVertex, 1)).xyz;
 	return waifu_projectVertex2(waifu_computeVertexWorldPos(float4(inVertex, 1)), float4(inVertex, 1));
+}
+
+float4 waifu_applyOutlineVisibility(float4 positionCS) {
+    if (waifu_coef > 1.0e-6 && _lyuma_outline_2d < 0.5) {
+        return float4(2.0, 2.0, -2.0, 1.0);
+    }
+    return positionCS;
+}
+
+float4 waifu_projectOutlineVertexWorldPos(float4 inVertex) {
+    return waifu_applyOutlineVisibility(
+        waifu_projectVertexWorldPos(inVertex));
+}
+
+float4 waifu_projectOutlineVertexWorldPos(float3 inVertex) {
+    return waifu_applyOutlineVisibility(
+        waifu_projectVertexWorldPos(inVertex));
+}
+
+float4 waifu_projectOutlineVertexFromWorldPos(float3 inVertex) {
+    return waifu_applyOutlineVisibility(
+        waifu_projectVertexFromWorldPos(inVertex));
 }
 
 #ifdef LYUMA2D_HOTPATCH

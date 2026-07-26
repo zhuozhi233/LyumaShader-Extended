@@ -242,6 +242,11 @@ namespace LyumaShader
             SetFloatIfPresent(clone, "_zcorrect_coef", rule.SquashZ);
             SetFloatIfPresent(
                 clone,
+                "_lyuma_outline_2d",
+                rule.OutlineIn2D ? 1.0f : 0.0f
+            );
+            SetFloatIfPresent(
+                clone,
                 CustomLogicProperty,
                 rule.KeepCustomLogicIn2D ? 1.0f : 0.0f
             );
@@ -1260,6 +1265,7 @@ namespace LyumaShader
             internal readonly float FacingDirection;
             internal readonly float LockAxis;
             internal readonly float SquashZ;
+            internal readonly bool OutlineIn2D;
             internal readonly bool GenerateToggle;
             internal readonly string ToggleMenuName;
             internal readonly Texture2D ToggleMenuIcon;
@@ -1283,6 +1289,7 @@ namespace LyumaShader
                 FacingDirection = component.FacingDirection;
                 LockAxis = component.LockAxis;
                 SquashZ = component.SquashZ;
+                OutlineIn2D = !component.DisableOutlineIn2D;
                 GenerateToggle = component.GenerateToggle;
                 ToggleMenuName = component.ToggleMenuName;
                 ToggleMenuIcon = component.ToggleMenuIcon;
@@ -1346,6 +1353,7 @@ namespace LyumaShader
             internal readonly float FacingDirection;
             internal readonly float LockAxis;
             internal readonly float SquashZ;
+            internal readonly bool OutlineIn2D;
 
             internal RuleSnapshot(
                 LyumaWaifu2dAvatarConfig.MaterialRule source,
@@ -1357,18 +1365,26 @@ namespace LyumaShader
                 MergeCustomShader = source.MergeCustomShader;
                 KeepCustomLogicIn2D = source.EnableCustomLogicIn2D;
                 FlattenMaterialVariant = source.FlattenMaterialVariant;
-                TwoDimensionalness = source.OverrideParameters
+                TwoDimensionalness = source.OverrideParameters &&
+                    !source.UseGlobalTwoDimensionalness
                     ? source.TwoDimensionalness
                     : configuration.TwoDimensionalness;
-                FacingDirection = source.OverrideParameters
+                FacingDirection = source.OverrideParameters &&
+                    !source.UseGlobalFacingDirection
                     ? source.FacingDirection
                     : configuration.FacingDirection;
-                LockAxis = source.OverrideParameters
+                LockAxis = source.OverrideParameters &&
+                    !source.UseGlobalLockAxis
                     ? source.LockAxis
                     : configuration.LockAxis;
-                SquashZ = source.OverrideParameters
+                SquashZ = source.OverrideParameters &&
+                    !source.UseGlobalSquashZ
                     ? source.SquashZ
                     : configuration.SquashZ;
+                OutlineIn2D = source.OverrideParameters &&
+                    source.OverrideOutlineIn2D
+                    ? !source.DisableOutlineIn2D
+                    : configuration.OutlineIn2D;
             }
         }
 

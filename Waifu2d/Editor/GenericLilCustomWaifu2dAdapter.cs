@@ -25,7 +25,7 @@ namespace LyumaShader
         private const string BridgeFileName = "lyuma_waifu2d_bridge.hlsl";
         internal const string MotchiriContactOffsetProperty =
             "_lyuma_motchiri_contact_offset_os";
-        private const int GeneratorVersion = 8;
+        private const int GeneratorVersion = 9;
 
         private static readonly Dictionary<int, FamilyManifest> SourceFamilyCache =
             new Dictionary<int, FamilyManifest>();
@@ -63,7 +63,21 @@ namespace LyumaShader
         internal static Shader GetWaifu2dShader(Shader source)
         {
             if(source == null) return null;
-            if(IsWaifu2dShader(source)) return source;
+            if(IsWaifu2dShader(source))
+            {
+                FamilyManifest currentManifest;
+                if(source.FindPropertyIndex("_lyuma_outline_2d") >= 0 &&
+                    TryGetGeneratedManifest(source, out currentManifest) &&
+                    currentManifest.generatorVersion >= GeneratorVersion)
+                {
+                    return source;
+                }
+
+                Shader original = GetOriginalShader(source);
+                return original != null
+                    ? GetWaifu2dShader(original)
+                    : source;
+            }
 
             FamilyManifest sourceManifest;
             if(!TryDiscoverSourceFamily(source, out sourceManifest)) return null;
@@ -108,6 +122,7 @@ namespace LyumaShader
             material.SetFloat("_facing_coef", 0.0f);
             material.SetFloat("_lock2daxis_coef", 1.0f);
             material.SetFloat("_zcorrect_coef", 1.0f);
+            material.SetFloat("_lyuma_outline_2d", 1.0f);
             if(material.HasProperty(MotchiriContactOffsetProperty))
             {
                 material.SetVector(
@@ -359,6 +374,7 @@ namespace LyumaShader
                 "        _facing_coef     (\"Facing Direction\", Range(-1, 1)) = 0.0\n" +
                 "        _lock2daxis_coef (\"Lock 2D Axis\", Range(0, 1)) = 1.0\n" +
                 "        _zcorrect_coef   (\"Squash Z (1.0 recommended)\", Float) = 1.0\n" +
+                "        [HideInInspector][Toggle] _lyuma_outline_2d (\"Enable Outline In 2D\", Float) = 1.0\n" +
                 "        [HideInInspector] _lyuma_custom_logic_2d (\"Keep Custom Vertex Logic In 2D\", Float) = 1.0\n" +
                 "        [HideInInspector] _lyuma_motchiri_contact_offset_os (\"Motchiri Contact Coordinate Offset\", Vector) = (0,0,0,0)\n";
             File.WriteAllText(propertiesPath, content, new UTF8Encoding(false));
@@ -377,6 +393,7 @@ namespace LyumaShader
                 "uniform float _facing_coef;\n" +
                 "uniform float _lock2daxis_coef;\n" +
                 "uniform float _zcorrect_coef;\n" +
+                "uniform float _lyuma_outline_2d;\n" +
                 "uniform float _lyuma_custom_logic_2d;\n" +
                 "uniform float4 _lyuma_motchiri_contact_offset_os;\n" +
                 "#include \"" + shaderAssetFolder.Replace('\\', '/') + "/custom_insert.hlsl\"\n";
@@ -774,7 +791,19 @@ namespace LyumaShader
             MaterialProperty facing = FindProperty("_facing_coef", currentProperties, false);
             MaterialProperty lockAxis = FindProperty("_lock2daxis_coef", currentProperties, false);
             MaterialProperty squashZ = FindProperty("_zcorrect_coef", currentProperties, false);
-            if(amount == null || facing == null || lockAxis == null || squashZ == null) return;
+            MaterialProperty outlineIn2D = FindProperty(
+                "_lyuma_outline_2d",
+                currentProperties,
+                false
+            );
+            if(amount == null ||
+                facing == null ||
+                lockAxis == null ||
+                squashZ == null ||
+                outlineIn2D == null)
+            {
+                return;
+            }
 
             EditorGUILayout.Space();
             showWaifu2d = EditorGUILayout.Foldout(showWaifu2d, "Lyuma Waifu2d", true);
@@ -784,8 +813,28 @@ namespace LyumaShader
             materialEditor.ShaderProperty(facing, "Facing Direction / 朝向");
             materialEditor.ShaderProperty(lockAxis, "Lock 2D Axis / 锁定 2D 轴");
             materialEditor.ShaderProperty(squashZ, "Squash Z / Z 深度修正");
+            DrawBooleanProperty(
+                outlineIn2D,
+                "Enable Outline In 2D / 启用 2D 轮廓"
+            );
             EditorGUILayout.HelpBox("Recommended Squash Z / 推荐 Z 深度修正: 1.0", MessageType.Info);
             EditorGUI.indentLevel--;
+        }
+
+        private static void DrawBooleanProperty(
+            MaterialProperty property,
+            string label
+        )
+        {
+            EditorGUI.showMixedValue = property.hasMixedValue;
+            EditorGUI.BeginChangeCheck();
+            bool value = EditorGUILayout.ToggleLeft(
+                label,
+                property.floatValue >= 0.5f
+            );
+            if(EditorGUI.EndChangeCheck())
+                property.floatValue = value ? 1.0f : 0.0f;
+            EditorGUI.showMixedValue = false;
         }
     }
 }

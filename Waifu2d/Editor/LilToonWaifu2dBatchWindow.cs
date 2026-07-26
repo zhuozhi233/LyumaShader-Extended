@@ -29,8 +29,9 @@ namespace LyumaShader
         private const string FacingDirectionProperty = "_facing_coef";
         private const string LockAxisProperty = "_lock2daxis_coef";
         private const string SquashZProperty = "_zcorrect_coef";
+        private const string OutlineIn2DProperty = "_lyuma_outline_2d";
         private const string CustomLogicProperty = "_lyuma_custom_logic_2d";
-        private const int CurrentSettingsVersion = 4;
+        private const int CurrentSettingsVersion = 5;
         private const int MaterialsPerPage = 24;
         private static readonly string[] MainPageNames =
         {
@@ -51,6 +52,7 @@ namespace LyumaShader
         [SerializeField] private float facingDirection;
         [SerializeField] private float lockAxis = 1.0f;
         [SerializeField] private float squashZ = 1.0f;
+        [SerializeField] private bool outlineIn2D = true;
         [SerializeField] private int settingsVersion;
 
         [SerializeField] private int selectedMainPage;
@@ -96,6 +98,7 @@ namespace LyumaShader
             internal float FacingDirection;
             internal float LockAxis;
             internal float SquashZ;
+            internal bool OutlineIn2D;
         }
 
         internal struct LegacyUpgradeRunResult
@@ -173,6 +176,7 @@ namespace LyumaShader
             titleContent = new GUIContent(WindowTitle);
             if(settingsVersion >= CurrentSettingsVersion) return;
             applyTwoDimensionalness = true;
+            outlineIn2D = true;
             if(twoDimensionalness <= 0.0f) twoDimensionalness = 0.99f;
             if(Mathf.Approximately(squashZ, 0.975f) || Mathf.Approximately(squashZ, 0.8f))
                 squashZ = 1.0f;
@@ -634,7 +638,7 @@ namespace LyumaShader
             }
         }
 
-        private static void DrawMaterialParameterOverrides(
+        private void DrawMaterialParameterOverrides(
             LyumaWaifu2dAvatarConfig configuration,
             LyumaWaifu2dAvatarConfig.MaterialRule rule
         )
@@ -657,6 +661,13 @@ namespace LyumaShader
                     rule.FacingDirection = configuration.FacingDirection;
                     rule.LockAxis = configuration.LockAxis;
                     rule.SquashZ = configuration.SquashZ;
+                    rule.DisableOutlineIn2D =
+                        configuration.DisableOutlineIn2D;
+                    rule.UseGlobalTwoDimensionalness = false;
+                    rule.UseGlobalFacingDirection = false;
+                    rule.UseGlobalLockAxis = false;
+                    rule.UseGlobalSquashZ = false;
+                    rule.OverrideOutlineIn2D = true;
                 }
                 rule.OverrideParameters = overrideParameters;
                 SaveConfiguration(configuration);
@@ -664,43 +675,145 @@ namespace LyumaShader
 
             if(!rule.OverrideParameters) return;
 
+            EditorGUI.indentLevel++;
+            float currentTwoDimensionalness =
+                !rule.UseGlobalTwoDimensionalness
+                ? rule.TwoDimensionalness
+                : configuration.TwoDimensionalness;
+            float currentFacingDirection =
+                !rule.UseGlobalFacingDirection
+                ? rule.FacingDirection
+                : configuration.FacingDirection;
+            float currentLockAxis =
+                !rule.UseGlobalLockAxis
+                ? rule.LockAxis
+                : configuration.LockAxis;
+            float currentSquashZ =
+                !rule.UseGlobalSquashZ
+                ? rule.SquashZ
+                : configuration.SquashZ;
+            bool currentOutlineIn2D = rule.OverrideOutlineIn2D
+                ? !rule.DisableOutlineIn2D
+                : !configuration.DisableOutlineIn2D;
+
             EditorGUI.BeginChangeCheck();
-            float twoDimensionalness = EditorGUILayout.Slider(
-                "2D 强度",
-                rule.TwoDimensionalness,
-                0.0f,
-                1.0f
+            EditorGUILayout.BeginHorizontal();
+            bool overrideTwoDimensionalness = GUILayout.Toggle(
+                !rule.UseGlobalTwoDimensionalness,
+                !rule.UseGlobalTwoDimensionalness ? "独立" : "全局",
+                EditorStyles.miniButton,
+                GUILayout.Width(46.0f)
             );
-            float facingDirection = EditorGUILayout.Slider(
-                "朝向",
-                rule.FacingDirection,
-                -1.0f,
-                1.0f
+            using(new EditorGUI.DisabledScope(
+                !overrideTwoDimensionalness))
+            {
+                currentTwoDimensionalness = EditorGUILayout.Slider(
+                    "2D 强度",
+                    currentTwoDimensionalness,
+                    0.0f,
+                    1.0f
+                );
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            bool overrideFacingDirection = GUILayout.Toggle(
+                !rule.UseGlobalFacingDirection,
+                !rule.UseGlobalFacingDirection ? "独立" : "全局",
+                EditorStyles.miniButton,
+                GUILayout.Width(46.0f)
             );
-            float lockAxis = EditorGUILayout.Slider(
-                "锁定 2D 轴",
-                rule.LockAxis,
-                0.0f,
-                1.0f
+            using(new EditorGUI.DisabledScope(!overrideFacingDirection))
+            {
+                currentFacingDirection = EditorGUILayout.Slider(
+                    "朝向",
+                    currentFacingDirection,
+                    -1.0f,
+                    1.0f
+                );
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            bool overrideLockAxis = GUILayout.Toggle(
+                !rule.UseGlobalLockAxis,
+                !rule.UseGlobalLockAxis ? "独立" : "全局",
+                EditorStyles.miniButton,
+                GUILayout.Width(46.0f)
             );
-            float squashZ = EditorGUILayout.Slider(
-                "Z 深度修正",
-                rule.SquashZ,
-                0.0f,
-                1.0f
+            using(new EditorGUI.DisabledScope(!overrideLockAxis))
+            {
+                currentLockAxis = EditorGUILayout.Slider(
+                    "锁定 2D 轴",
+                    currentLockAxis,
+                    0.0f,
+                    1.0f
+                );
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            bool overrideSquashZ = GUILayout.Toggle(
+                !rule.UseGlobalSquashZ,
+                !rule.UseGlobalSquashZ ? "独立" : "全局",
+                EditorStyles.miniButton,
+                GUILayout.Width(46.0f)
             );
+            using(new EditorGUI.DisabledScope(!overrideSquashZ))
+            {
+                currentSquashZ = EditorGUILayout.Slider(
+                    "Z 深度修正",
+                    currentSquashZ,
+                    0.0f,
+                    1.0f
+                );
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            bool overrideOutlineIn2D = GUILayout.Toggle(
+                rule.OverrideOutlineIn2D,
+                rule.OverrideOutlineIn2D ? "独立" : "全局",
+                EditorStyles.miniButton,
+                GUILayout.Width(46.0f)
+            );
+            using(new EditorGUI.DisabledScope(!overrideOutlineIn2D))
+            {
+                currentOutlineIn2D = EditorGUILayout.ToggleLeft(
+                    "启用 2D 轮廓",
+                    currentOutlineIn2D
+                );
+            }
+            EditorGUILayout.EndHorizontal();
+
             if(EditorGUI.EndChangeCheck())
             {
                 RecordConfiguration(
                     configuration,
                     "修改 Waifu2d 材质参数"
                 );
-                rule.TwoDimensionalness = twoDimensionalness;
-                rule.FacingDirection = facingDirection;
-                rule.LockAxis = lockAxis;
-                rule.SquashZ = squashZ;
+                rule.UseGlobalTwoDimensionalness =
+                    !overrideTwoDimensionalness;
+                rule.UseGlobalFacingDirection =
+                    !overrideFacingDirection;
+                rule.UseGlobalLockAxis = !overrideLockAxis;
+                rule.UseGlobalSquashZ = !overrideSquashZ;
+                rule.OverrideOutlineIn2D = overrideOutlineIn2D;
+                if(overrideTwoDimensionalness)
+                    rule.TwoDimensionalness =
+                        currentTwoDimensionalness;
+                if(overrideFacingDirection)
+                    rule.FacingDirection = currentFacingDirection;
+                if(overrideLockAxis)
+                    rule.LockAxis = currentLockAxis;
+                if(overrideSquashZ)
+                    rule.SquashZ = currentSquashZ;
+                if(overrideOutlineIn2D)
+                    rule.DisableOutlineIn2D =
+                        !currentOutlineIn2D;
                 SaveConfiguration(configuration);
             }
+            EditorGUI.indentLevel--;
             EditorGUILayout.Space(2.0f);
         }
 
@@ -1508,7 +1621,12 @@ namespace LyumaShader
                         material,
                         SquashZProperty,
                         1.0f
-                    )
+                    ),
+                    OutlineIn2D = GetMaterialFloat(
+                        material,
+                        OutlineIn2DProperty,
+                        1.0f
+                    ) > 0.5f
                 });
             }
 
@@ -1632,6 +1750,8 @@ namespace LyumaShader
                     rule.FacingDirection = snapshot.FacingDirection;
                     rule.LockAxis = snapshot.LockAxis;
                     rule.SquashZ = snapshot.SquashZ;
+                    rule.OverrideOutlineIn2D = true;
+                    rule.DisableOutlineIn2D = !snapshot.OutlineIn2D;
                 }
                 else if(!existingRuleMaterials.Contains(material))
                 {
@@ -2312,6 +2432,13 @@ namespace LyumaShader
                 0.0f,
                 1.0f
             );
+            outlineIn2D = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "启用 2D 轮廓",
+                    "关闭后只在进入 2D 状态时隐藏材质轮廓；3D 状态不受影响"
+                ),
+                outlineIn2D
+            );
 
             EditorGUILayout.BeginHorizontal();
             if(GUILayout.Button(
@@ -2460,6 +2587,13 @@ namespace LyumaShader
                 new GUIContent("Z 深度修正", "Squash Z：推荐 1.0；使用压平后的稳定深度"),
                 0.0f,
                 1.0f
+            );
+            outlineIn2D = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "启用 2D 轮廓",
+                    "关闭后只在进入 2D 状态时隐藏材质轮廓；3D 状态不受影响"
+                ),
+                outlineIn2D
             );
 
             EditorGUILayout.BeginHorizontal();
@@ -2814,15 +2948,6 @@ namespace LyumaShader
 
         private void ApplyParametersToConfiguration(string sourceName)
         {
-            if(!applyTwoDimensionalness &&
-                !applyFacingDirection &&
-                !applyLockAxis &&
-                !applySquashZ)
-            {
-                SetStatus("请至少勾选一个要写入配置的参数。", MessageType.Warning);
-                return;
-            }
-
             LyumaWaifu2dAvatarConfig configuration = GetConfiguration(true);
             if(configuration == null) return;
             RecordConfiguration(configuration, "修改 Waifu2d NDMF 参数");
@@ -2834,6 +2959,7 @@ namespace LyumaShader
                 configuration.LockAxis = lockAxis;
             if(applySquashZ)
                 configuration.SquashZ = squashZ;
+            configuration.DisableOutlineIn2D = !outlineIn2D;
             SaveConfiguration(configuration);
             SetStatus(
                 sourceName + "：已更新 NDMF 参数，原材质没有被修改。",
@@ -2854,6 +2980,7 @@ namespace LyumaShader
                 configuration.LockAxis = lockAxis;
             if(applySquashZ)
                 configuration.SquashZ = squashZ;
+            configuration.DisableOutlineIn2D = !outlineIn2D;
         }
 
         private void LoadWindowParametersFromConfiguration()
@@ -2864,6 +2991,7 @@ namespace LyumaShader
             facingDirection = configuration.FacingDirection;
             lockAxis = configuration.LockAxis;
             squashZ = configuration.SquashZ;
+            outlineIn2D = !configuration.DisableOutlineIn2D;
         }
 
         private void SetRootBoneBuildRepair(bool enabled)
@@ -3061,11 +3189,6 @@ namespace LyumaShader
 
         private void ApplyGeneralParameters(List<Material> materials, string sourceName)
         {
-            if(!applyTwoDimensionalness && !applyFacingDirection && !applyLockAxis && !applySquashZ)
-            {
-                SetStatus("请至少勾选一个要批量修改的参数。", MessageType.Warning);
-                return;
-            }
             if(materials.Count == 0)
             {
                 SetStatus(sourceName + "中没有找到受支持的 lilToon、lilToon Custom 或 Poiyomi 材质。", MessageType.Warning);
@@ -3089,6 +3212,10 @@ namespace LyumaShader
                 if(applyFacingDirection) material.SetFloat(FacingDirectionProperty, facingDirection);
                 if(applyLockAxis) material.SetFloat(LockAxisProperty, lockAxis);
                 if(applySquashZ) material.SetFloat(SquashZProperty, squashZ);
+                material.SetFloat(
+                    OutlineIn2DProperty,
+                    outlineIn2D ? 1.0f : 0.0f
+                );
                 EditorUtility.SetDirty(material);
                 changed++;
             }
@@ -3889,9 +4016,30 @@ namespace LyumaShader
                 return false;
             }
 
+            Material shaderOwner = GetShaderOwner(material);
+            if(shaderOwner != null &&
+                shaderOwner.shader != null &&
+                IsWaifu2dShader(shaderOwner.shader) &&
+                !HasMaterialProperty(shaderOwner, OutlineIn2DProperty))
+            {
+                Shader updatedShader =
+                    GetWaifu2dShader(shaderOwner.shader);
+                if(updatedShader == null) return false;
+
+                int renderQueue = shaderOwner.renderQueue;
+                Undo.RecordObject(
+                    shaderOwner,
+                    "更新 Lyuma Waifu2d 着色器"
+                );
+                shaderOwner.shader = updatedShader;
+                shaderOwner.SetFloat(OutlineIn2DProperty, 1.0f);
+                shaderOwner.renderQueue = renderQueue;
+                EditorUtility.SetDirty(shaderOwner);
+                converted++;
+            }
+
             if(!IsWaifu2dMaterial(material))
             {
-                Material shaderOwner = GetShaderOwner(material);
                 if(!IsWaifu2dShader(shaderOwner.shader))
                 {
                     Shader targetShader = GetWaifu2dShader(shaderOwner.shader);
@@ -3910,7 +4058,8 @@ namespace LyumaShader
             return HasMaterialProperty(material, TwoDimensionalnessProperty) &&
                 HasMaterialProperty(material, FacingDirectionProperty) &&
                 HasMaterialProperty(material, LockAxisProperty) &&
-                HasMaterialProperty(material, SquashZProperty);
+                HasMaterialProperty(material, SquashZProperty) &&
+                HasMaterialProperty(material, OutlineIn2DProperty);
         }
 
         private static Material GetShaderOwner(Material material)
