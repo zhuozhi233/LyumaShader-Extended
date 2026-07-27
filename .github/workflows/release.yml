@@ -55,10 +55,9 @@ jobs:
             > [!IMPORTANT]
             > 从 1.x 升级时，直接安装最新版 2.x，再通过 `Tools > LyumaShader Extended > 从 1.x 升级到 2.x` 迁移旧模型。升级前不要求执行一键还原或删除旧版生成资源。
 
-            - 新增 2D 轮廓控制，可在全局或每个材质中分别决定进入 2D 后是否保留轮廓，3D 状态不受影响
-            - 单材质的 2D 强度、朝向、锁定 2D 轴、Z 深度修正和 2D 轮廓均可逐项选择使用全局设置或独立设置
-            - lilToon、lilToon Custom Shader 与 Poiyomi 的 Waifu2d 材质面板新增“启用 2D 轮廓”开关
-            - 已转换的旧版 Waifu2d 着色器会在再次处理时自动补齐新的轮廓控制
+            - 修复官方 lilToon 材质转换为 Waifu2d 后，AAO 无法识别着色器而跳过纹理内存优化的问题
+            - 复用 AAO 已注册的官方 lilToon 着色器信息，不修改 AAO、lilToon 或源材质
+            - 未安装 AAO 或接口不兼容时安全跳过；Poiyomi、Motchiri 与第三方 lilToon 变体不套用该兼容规则
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip

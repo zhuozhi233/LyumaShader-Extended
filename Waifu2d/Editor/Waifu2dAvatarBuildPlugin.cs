@@ -212,6 +212,10 @@ namespace LyumaShader
                 return source;
             }
 
+            AaoShaderInformationBridge.RegisterOfficialLilToonShader(
+                targetShader
+            );
+
             int renderQueue = source.renderQueue;
             Material clone;
             if(source.isVariant || (rule.Source != null && rule.Source.isVariant))

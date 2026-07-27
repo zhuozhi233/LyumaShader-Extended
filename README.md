@@ -12,6 +12,7 @@
 - 构建时生成 2D 开关、动画、BlendTree 与 Modular Avatar 菜单；指定 Sub Menu 时创建到其内部，其他 MA Menu Item 可直接复用，并可选择保留组件原有设置或用配置工具中的名称、图标、默认启用、保存和同步设置覆盖。
 - 构建时修复 Root Bone，并把普通 `MeshRenderer + MeshFilter` 临时转换为单骨骼 `SkinnedMeshRenderer`。
 - 默认保护 `ParticleSystemRenderer`：粒子独占材质跳过 Waifu2d；与普通网格共享材质时，为粒子生成独立的非 2D 构建副本并从开关动画中排除。
+- 官方 lilToon 转换材质会复用 AAO 的着色器信息，使 AAO 能继续执行纹理内存优化；未安装 AAO 时不会增加额外依赖。
 - 支持材质名称和 Shader 名称搜索；大量材质会分页显示。
 - 提供一键 1.x → 2.x 迁移，保留逐材质参数、Root Bone 和普通网格修复状态。
 
