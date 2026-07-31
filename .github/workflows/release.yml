@@ -55,9 +55,10 @@ jobs:
             > [!IMPORTANT]
             > 从 1.x 升级时，直接安装最新版 2.x，再通过 `Tools > LyumaShader Extended > 从 1.x 升级到 2.x` 迁移旧模型。升级前不要求执行一键还原或删除旧版生成资源。
 
-            - 修复官方 lilToon 材质转换为 Waifu2d 后，AAO 无法识别着色器而跳过纹理内存优化的问题
-            - 复用 AAO 已注册的官方 lilToon 着色器信息，不修改 AAO、lilToon 或源材质
-            - 未安装 AAO 或接口不兼容时安全跳过；Poiyomi、Motchiri 与第三方 lilToon 变体不套用该兼容规则
+            - 新增“剖面跟随相机”，可让 2D 剖面同时跟随相机的水平与俯仰方向；默认关闭以保留旧配置效果
+            - 修复 Poiyomi 在远离世界原点时因浮点精度下降而出现的网格错位、穿插和显示误差
+            - Poiyomi 改用以渲染器原点为基准的相对坐标计算，并保留原有压平与深度效果
+            - 旧版已生成的 Poiyomi Waifu2d 着色器会在扫描或构建时自动重新生成
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip

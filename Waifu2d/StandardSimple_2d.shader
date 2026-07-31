@@ -14,6 +14,7 @@ Shader "LyumaShader/StandardSimple_2d"
         _facing_coef ("Face in Profile", Range (-1, 1)) = 0.0
         _lock2daxis_coef ("Lock 2d Axis", Range (0, 1)) = 1.0
         _zcorrect_coef ("Squash Z (recommended=1; stable flattened depth)", Float) = 1.0
+        [Toggle] _lyuma_camera_parallel_2d ("Camera Parallel 2D", Float) = 0.0
 
 		_Color("Color", Color) = (1,1,1,1)
 		_MainTex("Albedo", 2D) = "white" {}

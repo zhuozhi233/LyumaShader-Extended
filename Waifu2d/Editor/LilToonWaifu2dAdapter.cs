@@ -179,6 +179,7 @@ namespace LyumaShader
             material.SetFloat("_lock2daxis_coef", 1.0f);
             material.SetFloat("_zcorrect_coef", 1.0f);
             material.SetFloat("_lyuma_outline_2d", 1.0f);
+            material.SetFloat("_lyuma_camera_parallel_2d", 0.0f);
         }
 
         private static Dictionary<string, string> BuildReverseMap()
@@ -203,6 +204,7 @@ namespace LyumaShader
         private MaterialProperty lockAxis;
         private MaterialProperty squashZ;
         private MaterialProperty outlineIn2D;
+        private MaterialProperty cameraParallel2D;
         private static bool showWaifu2d = true;
 
         protected override void LoadCustomProperties(MaterialProperty[] props, Material material)
@@ -216,6 +218,10 @@ namespace LyumaShader
             lockAxis = FindProperty("_lock2daxis_coef", props);
             squashZ = FindProperty("_zcorrect_coef", props);
             outlineIn2D = FindProperty("_lyuma_outline_2d", props);
+            cameraParallel2D = FindProperty(
+                "_lyuma_camera_parallel_2d",
+                props
+            );
         }
 
         protected override void DrawCustomProperties(Material material)
@@ -230,6 +236,10 @@ namespace LyumaShader
             m_MaterialEditor.ShaderProperty(facingDirection, "Facing Direction / 朝向");
             m_MaterialEditor.ShaderProperty(lockAxis, "Lock 2D Axis / 锁定 2D 轴");
             m_MaterialEditor.ShaderProperty(squashZ, "Squash Z / Z 深度修正");
+            DrawBooleanProperty(
+                cameraParallel2D,
+                "Camera Parallel 2D / 剖面跟随相机"
+            );
             DrawBooleanProperty(
                 outlineIn2D,
                 "Enable Outline In 2D / 启用 2D 轮廓"

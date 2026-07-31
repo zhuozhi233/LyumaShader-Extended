@@ -246,6 +246,11 @@ namespace LyumaShader
             SetFloatIfPresent(clone, "_zcorrect_coef", rule.SquashZ);
             SetFloatIfPresent(
                 clone,
+                "_lyuma_camera_parallel_2d",
+                configuration.CameraParallel2D ? 1.0f : 0.0f
+            );
+            SetFloatIfPresent(
+                clone,
                 "_lyuma_outline_2d",
                 rule.OutlineIn2D ? 1.0f : 0.0f
             );
@@ -318,7 +323,20 @@ namespace LyumaShader
         )
         {
             if(source == null || rule == null) return null;
-            if(IsWaifu2dShader(source)) return source;
+            if(LilToonWaifu2dAdapter.IsWaifu2dShader(source))
+            {
+                return source;
+            }
+            if(GenericLilCustomWaifu2dAdapter.IsWaifu2dShader(source))
+            {
+                return GenericLilCustomWaifu2dAdapter.GetWaifu2dShader(
+                    source
+                );
+            }
+            if(PoiyomiWaifu2dAdapter.IsWaifu2dShader(source))
+            {
+                return PoiyomiWaifu2dAdapter.GetWaifu2dShader(source);
+            }
 
             if(GenericLilCustomWaifu2dAdapter.IsSupported(source))
             {
@@ -1269,6 +1287,7 @@ namespace LyumaShader
             internal readonly float FacingDirection;
             internal readonly float LockAxis;
             internal readonly float SquashZ;
+            internal readonly bool CameraParallel2D;
             internal readonly bool OutlineIn2D;
             internal readonly bool GenerateToggle;
             internal readonly string ToggleMenuName;
@@ -1293,6 +1312,7 @@ namespace LyumaShader
                 FacingDirection = component.FacingDirection;
                 LockAxis = component.LockAxis;
                 SquashZ = component.SquashZ;
+                CameraParallel2D = component.CameraParallel2D;
                 OutlineIn2D = !component.DisableOutlineIn2D;
                 GenerateToggle = component.GenerateToggle;
                 ToggleMenuName = component.ToggleMenuName;

@@ -13,6 +13,7 @@ uniform float _facing_coef;
 uniform float _lock2daxis_coef;
 uniform float _zcorrect_coef;
 uniform float _lyuma_outline_2d;
+uniform float _lyuma_camera_parallel_2d;
 #endif
 
 float nonzeroify(float inp) {
@@ -41,7 +42,12 @@ static float3 cameraPos = lerp(realCameraPos, targetCameraPos, min(_2d_coef * 4,
 
 static float3 cameraToObj = (cameraPos - objectPos); // + float3(0., 0., 0.0001);
 //static float3 cameraToObj = float3(cameraToObjX.x, 0., nonzeroify(cameraToObjX.z));
-static float2 cameraToObj2D = normalize(cameraToObj.xz); // FIXME: was normalize(cameraToObj).xz WHY?
+static float cameraToObjXZLengthSq = dot(cameraToObj.xz, cameraToObj.xz);
+static float2 cameraToObjFallback = normalize(targetCameraPosFacingVec.xz);
+static float2 cameraToObj2D = lerp(
+    cameraToObjFallback,
+    cameraToObj.xz * rsqrt(max(1.0e-12, cameraToObjXZLengthSq)),
+    step(1.0e-12, cameraToObjXZLengthSq));
 
 #if defined(VR_ONLY_2D) && !defined(USING_STEREO_MATRICES)
 static float desired_waifu_coef = 0.0;
@@ -60,7 +66,12 @@ static float3 zAxis = float3(-cameraToObj2D.x,0,cameraToObj2D.y);
 // cardinal view angles; using zAxis makes the flattened plane rotate away
 // from the render camera at diagonal angles, which is especially visible in
 // VRChat and mirrors.
-static float3 flattenNormal = float3(xAxis.z, yAxis.z, zAxis.z);
+static float cameraParallel2D = step(0.5, _lyuma_camera_parallel_2d);
+static float3 legacyFlattenNormal = float3(xAxis.z, yAxis.z, zAxis.z);
+static float3 flattenNormal = normalize(lerp(
+    legacyFlattenNormal,
+    approxEyeDir,
+    cameraParallel2D));
 
 // world in camera space: [xAxis yAxis zAxis cameraPos]
 static float4x4 myVMat = float4x4(
@@ -95,24 +106,10 @@ static float3 facingApproxEyeDir = normalize(lerp(approxCameraDir, targetApproxE
 static float2 eyeFacing = lerp(float2(1,0), facingApproxEyeDir.xz, _facing_coef);
 
 float4 waifu_computeWorldFlatWorldPos(float4 objToWorld) {
-#if defined(LYUMA2D_POIYOMI)
-    float3 oPos = UnityWorldToViewPos(objToWorld.xyz).xyz;
-    float4 unprojectedPos = mul(myInvVMat, objToWorld);
-    float4 semiProjectedPos = float4(unprojectedPos.xyz, 1.);
-    semiProjectedPos.z = 0.;
-    float4 actualObjectPos = mul(myVMat, semiProjectedPos);
-    actualObjectPos.y = objToWorld.y;
-    return actualObjectPos;
-#else
-    // Work relative to the renderer origin. The old matrix round-trip multiplied
-    // large absolute world positions by matrices containing the opposite large
-    // translation. At world coordinates around 1,000-10,000 that cancellation
-    // loses the small depth differences which keep a flattened mesh stable.
     float3 worldOffset = objToWorld.xyz - objectPos;
     float3 flattenedWorldOffset = worldOffset
         - flattenNormal * dot(worldOffset, flattenNormal);
     return float4(objectPos + flattenedWorldOffset, objToWorld.w);
-#endif
 }
 
 float3 waifu_computeVertexWorldOffset(float4 inVertex) {
@@ -143,25 +140,15 @@ float4 waifu_computeVertexViewPos(float4 inVertex) {
 // inVertex: original model space vertex;
 float4 waifu_computeVertexWorldPos(float4 inVertex) {
 	// START CRAZY PER VERTEX
-#if defined(LYUMA2D_POIYOMI)
-    float4 objToWorld = mul(unity_ObjectToWorld, inVertex);
-    float4 actualObjectPos = waifu_computeWorldFlatWorldPos(objToWorld);
-    return waifu_coef * actualObjectPos + (1. - waifu_coef) * objToWorld;
-#else
     return float4(objectPos + waifu_computeVertexWorldOffset(inVertex), inVertex.w);
-#endif
 }
 
 float4 waifu_computeVertexLocalPos(float4 inVertex) {
-#if defined(LYUMA2D_POIYOMI)
-    return mul(unity_WorldToObject, waifu_computeVertexWorldPos(inVertex));
-#else
     // Convert the relative world offset as a direction. This avoids another
     // absolute world -> object cancellation in shadow-caster helpers.
     return float4(
         mul((float3x3)unity_WorldToObject, waifu_computeVertexWorldOffset(inVertex)),
         inVertex.w);
-#endif
 }
 
 float4 waifu_projectVertex2(float4 vertexWorldPos, float4 origPos) {
@@ -169,12 +156,6 @@ float4 waifu_projectVertex2(float4 vertexWorldPos, float4 origPos) {
     if (waifu_coef <= 1.0e-6) {
         return oPos;
     }
-#if defined(LYUMA2D_POIYOMI)
-    float4 newViewPos = mul(UNITY_MATRIX_V, vertexWorldPos);
-    float4 newPos = mul(UNITY_MATRIX_P, newViewPos);
-    newPos.z = lerp(sign(oPos.w * oPos.z * newPos.w) * max(0.00001, abs(oPos.z)) * max(0.00001, abs(newPos.w)) / max(0.00001, abs(oPos.w)), newPos.z, _zcorrect_coef);
-    return newPos;
-#else
     // Reconstruct the flattened vertex directly in view space from its small
     // object-relative offset. vertexWorldPos is retained in the signature for
     // compatibility with generated shaders, but is deliberately not projected.
@@ -182,7 +163,6 @@ float4 waifu_projectVertex2(float4 vertexWorldPos, float4 origPos) {
     float4 newPos = mul(UNITY_MATRIX_P, newViewPos);
     newPos.z = lerp(sign(oPos.w * oPos.z * newPos.w) * max(0.00001, abs(oPos.z)) * max(0.00001, abs(newPos.w)) / max(0.00001, abs(oPos.w)), newPos.z, _zcorrect_coef);
     return newPos;
-#endif
     // END CRAZY PER VERTEX
 }
 

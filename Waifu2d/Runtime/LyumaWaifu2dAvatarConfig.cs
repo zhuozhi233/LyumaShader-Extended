@@ -56,6 +56,7 @@ namespace LyumaShader
         [Range(0.0f, 1.0f)]
         public float SquashZ = 1.0f;
 
+        public bool CameraParallel2D;
         public bool DisableOutlineIn2D;
         public bool GenerateToggle = true;
         public string ToggleMenuName;

@@ -30,6 +30,8 @@ namespace LyumaShader
         private const string LockAxisProperty = "_lock2daxis_coef";
         private const string SquashZProperty = "_zcorrect_coef";
         private const string OutlineIn2DProperty = "_lyuma_outline_2d";
+        private const string CameraParallel2DProperty =
+            "_lyuma_camera_parallel_2d";
         private const string CustomLogicProperty = "_lyuma_custom_logic_2d";
         private const int CurrentSettingsVersion = 5;
         private const int MaterialsPerPage = 24;
@@ -52,6 +54,7 @@ namespace LyumaShader
         [SerializeField] private float facingDirection;
         [SerializeField] private float lockAxis = 1.0f;
         [SerializeField] private float squashZ = 1.0f;
+        [SerializeField] private bool cameraParallel2D;
         [SerializeField] private bool outlineIn2D = true;
         [SerializeField] private int settingsVersion;
 
@@ -2432,6 +2435,13 @@ namespace LyumaShader
                 0.0f,
                 1.0f
             );
+            cameraParallel2D = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "剖面跟随相机",
+                    "开启后 2D 剖面同时跟随相机的水平和俯仰方向，始终与画面平行"
+                ),
+                cameraParallel2D
+            );
             outlineIn2D = EditorGUILayout.ToggleLeft(
                 new GUIContent(
                     "启用 2D 轮廓",
@@ -2587,6 +2597,13 @@ namespace LyumaShader
                 new GUIContent("Z 深度修正", "Squash Z：推荐 1.0；使用压平后的稳定深度"),
                 0.0f,
                 1.0f
+            );
+            cameraParallel2D = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "剖面跟随相机",
+                    "开启后 2D 剖面同时跟随相机的水平和俯仰方向，始终与画面平行"
+                ),
+                cameraParallel2D
             );
             outlineIn2D = EditorGUILayout.ToggleLeft(
                 new GUIContent(
@@ -2959,6 +2976,7 @@ namespace LyumaShader
                 configuration.LockAxis = lockAxis;
             if(applySquashZ)
                 configuration.SquashZ = squashZ;
+            configuration.CameraParallel2D = cameraParallel2D;
             configuration.DisableOutlineIn2D = !outlineIn2D;
             SaveConfiguration(configuration);
             SetStatus(
@@ -2980,6 +2998,7 @@ namespace LyumaShader
                 configuration.LockAxis = lockAxis;
             if(applySquashZ)
                 configuration.SquashZ = squashZ;
+            configuration.CameraParallel2D = cameraParallel2D;
             configuration.DisableOutlineIn2D = !outlineIn2D;
         }
 
@@ -2991,6 +3010,7 @@ namespace LyumaShader
             facingDirection = configuration.FacingDirection;
             lockAxis = configuration.LockAxis;
             squashZ = configuration.SquashZ;
+            cameraParallel2D = configuration.CameraParallel2D;
             outlineIn2D = !configuration.DisableOutlineIn2D;
         }
 
@@ -3212,6 +3232,13 @@ namespace LyumaShader
                 if(applyFacingDirection) material.SetFloat(FacingDirectionProperty, facingDirection);
                 if(applyLockAxis) material.SetFloat(LockAxisProperty, lockAxis);
                 if(applySquashZ) material.SetFloat(SquashZProperty, squashZ);
+                if(material.HasProperty(CameraParallel2DProperty))
+                {
+                    material.SetFloat(
+                        CameraParallel2DProperty,
+                        cameraParallel2D ? 1.0f : 0.0f
+                    );
+                }
                 material.SetFloat(
                     OutlineIn2DProperty,
                     outlineIn2D ? 1.0f : 0.0f
@@ -4017,10 +4044,18 @@ namespace LyumaShader
             }
 
             Material shaderOwner = GetShaderOwner(material);
+            bool missingOutlineProperty = shaderOwner != null &&
+                !HasMaterialProperty(shaderOwner, OutlineIn2DProperty);
+            bool missingCameraParallelProperty = shaderOwner != null &&
+                !HasMaterialProperty(
+                    shaderOwner,
+                    CameraParallel2DProperty
+                );
             if(shaderOwner != null &&
                 shaderOwner.shader != null &&
                 IsWaifu2dShader(shaderOwner.shader) &&
-                !HasMaterialProperty(shaderOwner, OutlineIn2DProperty))
+                (missingOutlineProperty ||
+                    missingCameraParallelProperty))
             {
                 Shader updatedShader =
                     GetWaifu2dShader(shaderOwner.shader);
@@ -4032,7 +4067,19 @@ namespace LyumaShader
                     "更新 Lyuma Waifu2d 着色器"
                 );
                 shaderOwner.shader = updatedShader;
-                shaderOwner.SetFloat(OutlineIn2DProperty, 1.0f);
+                if(missingOutlineProperty &&
+                    shaderOwner.HasProperty(OutlineIn2DProperty))
+                {
+                    shaderOwner.SetFloat(OutlineIn2DProperty, 1.0f);
+                }
+                if(missingCameraParallelProperty &&
+                    shaderOwner.HasProperty(CameraParallel2DProperty))
+                {
+                    shaderOwner.SetFloat(
+                        CameraParallel2DProperty,
+                        0.0f
+                    );
+                }
                 shaderOwner.renderQueue = renderQueue;
                 EditorUtility.SetDirty(shaderOwner);
                 converted++;
@@ -4059,6 +4106,7 @@ namespace LyumaShader
                 HasMaterialProperty(material, FacingDirectionProperty) &&
                 HasMaterialProperty(material, LockAxisProperty) &&
                 HasMaterialProperty(material, SquashZProperty) &&
+                HasMaterialProperty(material, CameraParallel2DProperty) &&
                 HasMaterialProperty(material, OutlineIn2DProperty);
         }
 

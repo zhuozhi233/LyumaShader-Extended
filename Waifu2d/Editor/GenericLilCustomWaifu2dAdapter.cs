@@ -25,7 +25,7 @@ namespace LyumaShader
         private const string BridgeFileName = "lyuma_waifu2d_bridge.hlsl";
         internal const string MotchiriContactOffsetProperty =
             "_lyuma_motchiri_contact_offset_os";
-        private const int GeneratorVersion = 9;
+        private const int GeneratorVersion = 10;
 
         private static readonly Dictionary<int, FamilyManifest> SourceFamilyCache =
             new Dictionary<int, FamilyManifest>();
@@ -67,6 +67,9 @@ namespace LyumaShader
             {
                 FamilyManifest currentManifest;
                 if(source.FindPropertyIndex("_lyuma_outline_2d") >= 0 &&
+                    source.FindPropertyIndex(
+                        "_lyuma_camera_parallel_2d"
+                    ) >= 0 &&
                     TryGetGeneratedManifest(source, out currentManifest) &&
                     currentManifest.generatorVersion >= GeneratorVersion)
                 {
@@ -123,6 +126,7 @@ namespace LyumaShader
             material.SetFloat("_lock2daxis_coef", 1.0f);
             material.SetFloat("_zcorrect_coef", 1.0f);
             material.SetFloat("_lyuma_outline_2d", 1.0f);
+            material.SetFloat("_lyuma_camera_parallel_2d", 0.0f);
             if(material.HasProperty(MotchiriContactOffsetProperty))
             {
                 material.SetVector(
@@ -375,6 +379,7 @@ namespace LyumaShader
                 "        _lock2daxis_coef (\"Lock 2D Axis\", Range(0, 1)) = 1.0\n" +
                 "        _zcorrect_coef   (\"Squash Z (1.0 recommended)\", Float) = 1.0\n" +
                 "        [HideInInspector][Toggle] _lyuma_outline_2d (\"Enable Outline In 2D\", Float) = 1.0\n" +
+                "        [HideInInspector][Toggle] _lyuma_camera_parallel_2d (\"Camera Parallel 2D\", Float) = 0.0\n" +
                 "        [HideInInspector] _lyuma_custom_logic_2d (\"Keep Custom Vertex Logic In 2D\", Float) = 1.0\n" +
                 "        [HideInInspector] _lyuma_motchiri_contact_offset_os (\"Motchiri Contact Coordinate Offset\", Vector) = (0,0,0,0)\n";
             File.WriteAllText(propertiesPath, content, new UTF8Encoding(false));
@@ -394,6 +399,7 @@ namespace LyumaShader
                 "uniform float _lock2daxis_coef;\n" +
                 "uniform float _zcorrect_coef;\n" +
                 "uniform float _lyuma_outline_2d;\n" +
+                "uniform float _lyuma_camera_parallel_2d;\n" +
                 "uniform float _lyuma_custom_logic_2d;\n" +
                 "uniform float4 _lyuma_motchiri_contact_offset_os;\n" +
                 "#include \"" + shaderAssetFolder.Replace('\\', '/') + "/custom_insert.hlsl\"\n";
@@ -796,10 +802,16 @@ namespace LyumaShader
                 currentProperties,
                 false
             );
+            MaterialProperty cameraParallel2D = FindProperty(
+                "_lyuma_camera_parallel_2d",
+                currentProperties,
+                false
+            );
             if(amount == null ||
                 facing == null ||
                 lockAxis == null ||
                 squashZ == null ||
+                cameraParallel2D == null ||
                 outlineIn2D == null)
             {
                 return;
@@ -813,6 +825,10 @@ namespace LyumaShader
             materialEditor.ShaderProperty(facing, "Facing Direction / 朝向");
             materialEditor.ShaderProperty(lockAxis, "Lock 2D Axis / 锁定 2D 轴");
             materialEditor.ShaderProperty(squashZ, "Squash Z / Z 深度修正");
+            DrawBooleanProperty(
+                cameraParallel2D,
+                "Camera Parallel 2D / 剖面跟随相机"
+            );
             DrawBooleanProperty(
                 outlineIn2D,
                 "Enable Outline In 2D / 启用 2D 轮廓"

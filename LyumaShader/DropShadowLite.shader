@@ -8,6 +8,7 @@ Shader "LyumaShader/DropShadowLiteToonTransparent"
         _2d_coef ("Twodimensionalness", Range(0, 1)) = 0.99
         _facing_coef ("Face in Profile", Range (-1, 1)) = 0.0
         _lock2daxis_coef ("Lock 2d Axis", Range (0, 1)) = 1.0
+        [Toggle] _lyuma_camera_parallel_2d ("Camera Parallel 2D", Float) = 0.0
         //_local3d_coef ("See self in 3d", Range (0, 1)) = 0.0
         //_zcorrect_coef ("Squash Z (recommended=.8; 0=3d depth; 1=z-fight)", Float) = 0.8
         //_ztweak_coef ("Tweak z clip", Range (-1, 1)) = 0.0
