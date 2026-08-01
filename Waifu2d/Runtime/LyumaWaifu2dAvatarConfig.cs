@@ -42,6 +42,45 @@ namespace LyumaShader
             public float SquashZ = 1.0f;
         }
 
+        [Serializable]
+        public sealed class CustomMenuItem
+        {
+            public bool Enabled = true;
+            public string ParameterName;
+            public string MenuName;
+            public Texture2D MenuIcon;
+            public GameObject MenuParent;
+            public bool OverrideDirectMenuItemSettings;
+            public bool DefaultEnabled;
+            public bool Saved = true;
+            public bool Synced = true;
+
+            public bool ControlTwoDimensionalness = true;
+
+            [Range(0.0f, 1.0f)]
+            public float TwoDimensionalnessValue = 0.99f;
+
+            public bool ControlFacingDirection;
+
+            [Range(-1.0f, 1.0f)]
+            public float FacingDirectionValue;
+
+            public bool ControlLockAxis;
+
+            [Range(0.0f, 1.0f)]
+            public float LockAxisValue = 1.0f;
+
+            public bool ControlSquashZ;
+
+            [Range(0.0f, 1.0f)]
+            public float SquashZValue = 1.0f;
+
+            public bool ControlCameraParallel2D;
+            public bool CameraParallel2DValue;
+            public bool ControlOutlineIn2D;
+            public bool OutlineIn2DValue = true;
+        }
+
         public List<MaterialRule> Materials = new List<MaterialRule>();
 
         [Range(0.0f, 1.0f)]
@@ -58,18 +97,59 @@ namespace LyumaShader
 
         public bool CameraParallel2D;
         public bool DisableOutlineIn2D;
+
+        public int CustomMenuVersion;
+        public List<CustomMenuItem> CustomMenuItems =
+            new List<CustomMenuItem>();
+
+        // Kept only for migrating configurations created before custom menus.
+        [HideInInspector]
         public bool GenerateToggle = true;
+        [HideInInspector]
         public string ToggleMenuName;
+        [HideInInspector]
         public Texture2D ToggleMenuIcon;
+        [HideInInspector]
         public GameObject ToggleMenuParent;
+        [HideInInspector]
         public bool OverrideDirectMenuItemSettings;
+        [HideInInspector]
         public bool ToggleDefaultEnabled;
+        [HideInInspector]
         public bool ToggleSaved = true;
+        [HideInInspector]
         public bool ToggleSynced = true;
         public bool PreviewIn2D;
         public bool RepairRootBones = true;
         public bool ConvertStaticMeshes = true;
         public bool ProtectParticleMaterials = true;
+
+        public bool MigrateLegacyMenu()
+        {
+            if(CustomMenuVersion >= 1) return false;
+            CustomMenuVersion = 1;
+            if(CustomMenuItems == null)
+            {
+                CustomMenuItems = new List<CustomMenuItem>();
+            }
+
+            if(GenerateToggle && CustomMenuItems.Count == 0)
+            {
+                CustomMenuItems.Add(new CustomMenuItem
+                {
+                    ParameterName = "zhz/Lyuma2D",
+                    MenuName = ToggleMenuName,
+                    MenuIcon = ToggleMenuIcon,
+                    MenuParent = ToggleMenuParent,
+                    OverrideDirectMenuItemSettings =
+                        OverrideDirectMenuItemSettings,
+                    DefaultEnabled = ToggleDefaultEnabled,
+                    Saved = ToggleSaved,
+                    Synced = ToggleSynced
+                });
+            }
+            return true;
+        }
 
         public MaterialRule FindRule(Material material)
         {

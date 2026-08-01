@@ -248,6 +248,29 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
 #undef LIL_RE_VERTEX_POSITION_INPUTS
 #define LIL_RE_VERTEX_POSITION_INPUTS(o) o = LyumaWaifu2dReGetVertexPositionInputs(o)
 
+// Fur vertices are expanded in the geometry shader after the base surface has
+// passed through the custom vertex hook. Project the expansion direction onto
+// the same Waifu2d plane so the fur does not restore front-to-back thickness.
+#if defined(LIL_FUR)
+    float3 LyumaWaifu2dTransformFurDirectionOStoWS(
+        float3 directionOS,
+        bool doNormalize)
+    {
+        float3 directionWS = lilTransformDirOStoWS(
+            directionOS,
+            doNormalize);
+        float3 flattenedDirectionWS = directionWS
+            - flattenNormal * dot(directionWS, flattenNormal);
+        return lerp(directionWS, flattenedDirectionWS, waifu_coef);
+    }
+
+    #undef lilTransformDirOStoWS
+    #define lilTransformDirOStoWS(directionOS,doNormalize) \
+        LyumaWaifu2dTransformFurDirectionOStoWS( \
+            directionOS, \
+            doNormalize)
+#endif
+
 // FakeShadow has a dedicated vertex shader and does not call lilCustomVertexWS.
 // Hook its only position-input macro so it receives the same Waifu2d world-space
 // flattening and clip-space depth correction as the regular lilToon passes.

@@ -68,6 +68,8 @@ namespace LyumaShader
             new Dictionary<Material, MaterialUiInfo>();
         private readonly HashSet<Material> scheduledMotchiriMaterials =
             new HashSet<Material>();
+        private readonly HashSet<string> expandedCustomMenuItems =
+            new HashSet<string>(StringComparer.Ordinal);
         private GameObject scheduledMotchiriCacheRoot;
         private bool scheduledMotchiriCacheValid;
         private bool showLegacyTargetMaterials;
@@ -230,7 +232,8 @@ namespace LyumaShader
             GUIStyle titleStyle = new GUIStyle(EditorStyles.boldLabel)
             {
                 fontSize = 16,
-                alignment = TextAnchor.MiddleLeft
+                alignment = TextAnchor.MiddleLeft,
+                wordWrap = true
             };
             GUIStyle watermarkStyle = new GUIStyle(EditorStyles.miniLabel)
             {
@@ -238,8 +241,7 @@ namespace LyumaShader
             };
             EditorGUILayout.LabelField(
                 "LyumaShader Extended · Waifu2d 配置工具",
-                titleStyle,
-                GUILayout.Height(22.0f)
+                titleStyle
             );
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
@@ -326,6 +328,8 @@ namespace LyumaShader
 
         private void DrawTargetSection()
         {
+            bool compactActions =
+                position.width < 520.0f;
             EditorGUILayout.BeginHorizontal();
             if(GUILayout.Button("重新扫描", GUILayout.Height(24.0f)))
             {
@@ -342,6 +346,8 @@ namespace LyumaShader
             {
                 ConfigureMaterials(GetUsableTargets(), true, "已扫描材质");
             }
+            if(compactActions) EditorGUILayout.EndHorizontal();
+            if(compactActions) EditorGUILayout.BeginHorizontal();
             if(thirdPartyShaderVariantRiskAccepted &&
                 GUILayout.Button("启用所有材质", GUILayout.Height(24.0f)))
             {
@@ -872,9 +878,13 @@ namespace LyumaShader
             if(pageCount <= 1) return;
 
             EditorGUILayout.BeginHorizontal();
+            float pagerButtonWidth =
+                position.width < 400.0f ? 54.0f : 68.0f;
             using(new EditorGUI.DisabledScope(materialPage <= 0))
             {
-                if(GUILayout.Button("上一页", GUILayout.Width(68.0f)))
+                if(GUILayout.Button(
+                        "上一页",
+                        GUILayout.Width(pagerButtonWidth)))
                     materialPage--;
             }
             GUILayout.FlexibleSpace();
@@ -886,12 +896,14 @@ namespace LyumaShader
                     MaterialsPerPage
                 ),
                 EditorStyles.centeredGreyMiniLabel,
-                GUILayout.Width(170.0f)
+                GUILayout.MinWidth(80.0f)
             );
             GUILayout.FlexibleSpace();
             using(new EditorGUI.DisabledScope(materialPage >= pageCount - 1))
             {
-                if(GUILayout.Button("下一页", GUILayout.Width(68.0f)))
+                if(GUILayout.Button(
+                        "下一页",
+                        GUILayout.Width(pagerButtonWidth)))
                     materialPage++;
             }
             EditorGUILayout.EndHorizontal();
@@ -1167,14 +1179,20 @@ namespace LyumaShader
                     rule.MergeCustomShader = true;
             }
             CopyWindowParametersToConfiguration(configuration);
-            configuration.GenerateToggle = true;
+            EnsureCustomMenuConfiguration(configuration);
+            if(configuration.CustomMenuItems.Count == 0)
+            {
+                configuration.CustomMenuItems.Add(
+                    CreateDefaultCustomMenuItem(configuration)
+                );
+            }
             configuration.RepairRootBones = true;
             configuration.ConvertStaticMeshes = true;
             PrepareConfiguredShaders(configuration);
             SaveConfiguration(configuration);
             SetStatus(
                 string.Format(
-                    "已更新 NDMF 配置：启用 {0} 个材质，并开启 2D 开关、Root Bone 修复和普通网格修复。" +
+                    "已更新 NDMF 配置：启用 {0} 个材质，并配置游戏内 2D 菜单、Root Bone 修复和普通网格修复。" +
                     (thirdPartyMaterialCount > 0
                         ? enableThirdParty
                             ? "\n已按用户确认启用第三方变体着色器；其兼容性不作保证。"
@@ -1232,26 +1250,7 @@ namespace LyumaShader
             }
 
             EditorGUILayout.Space(3.0f);
-            bool generateToggle = configuration != null &&
-                configuration.GenerateToggle;
-            EditorGUI.BeginChangeCheck();
-            bool newGenerateToggle = EditorGUILayout.ToggleLeft(
-                new GUIContent(
-                    "生成 MA 菜单与 2D 开关",
-                    "构建时生成 zhz/Lyuma2D 参数、BlendTree 和 MA 菜单开关。"
-                ),
-                generateToggle
-            );
-            if(EditorGUI.EndChangeCheck())
-            {
-                SetBuildToggleEnabled(newGenerateToggle);
-                configuration = GetConfiguration(false);
-            }
-
-            if(newGenerateToggle && configuration != null)
-            {
-                DrawToggleMenuSettings(configuration);
-            }
+            DrawCustomMenuItems(configuration);
 
             EditorGUILayout.Space(3.0f);
             bool repairRootBones = configuration != null &&
@@ -1305,6 +1304,515 @@ namespace LyumaShader
                     newProtectParticleMaterials
                 );
             }
+        }
+
+        private void DrawCustomMenuItems(
+            LyumaWaifu2dAvatarConfig configuration
+        )
+        {
+            EditorGUILayout.Space(4.0f);
+            EditorGUILayout.LabelField(
+                "游戏内 2D 菜单",
+                EditorStyles.boldLabel
+            );
+            EditorGUILayout.HelpBox(
+                "每个菜单项都会生成独立的 Toggle 参数。多个菜单项同时开启时，列表中更靠后的菜单项优先，并完整覆盖前面菜单项的结果；当前菜单项未勾选的属性使用模型配置中的基础值。材质规则中设为“独立”的参数保持材质自己的值，仍使用“全局”的其他参数继续受菜单控制。",
+                MessageType.Info
+            );
+
+            if(configuration == null)
+            {
+                if(GUILayout.Button("创建默认 2D 菜单项", GUILayout.Height(28.0f)))
+                {
+                    configuration = GetConfiguration(true);
+                    if(configuration != null)
+                    {
+                        EnsureCustomMenuConfiguration(configuration);
+                        if(configuration.CustomMenuItems.Count == 0)
+                        {
+                            RecordConfiguration(
+                                configuration,
+                                "添加 Waifu2d 自定义菜单项"
+                            );
+                            configuration.CustomMenuItems.Add(
+                                CreateDefaultCustomMenuItem(configuration)
+                            );
+                            SaveConfiguration(configuration);
+                        }
+                    }
+                }
+                return;
+            }
+
+            EnsureCustomMenuConfiguration(configuration);
+            var serializedConfiguration =
+                new SerializedObject(configuration);
+            serializedConfiguration.Update();
+            SerializedProperty items =
+                serializedConfiguration.FindProperty("CustomMenuItems");
+            if(items == null) return;
+
+            var parameterCounts = new Dictionary<string, int>(
+                StringComparer.Ordinal
+            );
+            for(int index = 0; index < items.arraySize; index++)
+            {
+                string parameter = items.GetArrayElementAtIndex(index)
+                    .FindPropertyRelative("ParameterName")
+                    .stringValue;
+                if(string.IsNullOrWhiteSpace(parameter)) continue;
+                int count;
+                parameterCounts.TryGetValue(parameter, out count);
+                parameterCounts[parameter] = count + 1;
+            }
+
+            int moveFrom = -1;
+            int moveTo = -1;
+            int duplicateIndex = -1;
+            int removeIndex = -1;
+            for(int index = 0; index < items.arraySize; index++)
+            {
+                SerializedProperty item = items.GetArrayElementAtIndex(index);
+                SerializedProperty enabled =
+                    item.FindPropertyRelative("Enabled");
+                SerializedProperty parameter =
+                    item.FindPropertyRelative("ParameterName");
+                SerializedProperty menuName =
+                    item.FindPropertyRelative("MenuName");
+                string foldoutKey = string.IsNullOrWhiteSpace(
+                    parameter.stringValue
+                )
+                    ? "index:" + index
+                    : parameter.stringValue;
+                bool expanded = expandedCustomMenuItems.Contains(foldoutKey);
+                string title = string.IsNullOrWhiteSpace(menuName.stringValue)
+                    ? GetCustomMenuFallbackTitle(
+                        parameter.stringValue,
+                        index
+                    )
+                    : menuName.stringValue;
+
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                EditorGUILayout.BeginHorizontal();
+                enabled.boolValue = EditorGUILayout.ToggleLeft(
+                    GUIContent.none,
+                    enabled.boolValue,
+                    GUILayout.Width(18.0f)
+                );
+                bool newExpanded = EditorGUILayout.Foldout(
+                    expanded,
+                    title,
+                    true
+                );
+                if(newExpanded != expanded)
+                {
+                    if(newExpanded) expandedCustomMenuItems.Add(foldoutKey);
+                    else expandedCustomMenuItems.Remove(foldoutKey);
+                }
+                bool compactHeader =
+                    position.width < 560.0f;
+                if(!compactHeader)
+                {
+                    DrawCustomMenuItemActions(
+                        index,
+                        items.arraySize,
+                        ref moveFrom,
+                        ref moveTo,
+                        ref duplicateIndex,
+                        ref removeIndex
+                    );
+                }
+                EditorGUILayout.EndHorizontal();
+
+                if(compactHeader)
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    GUILayout.Space(18.0f);
+                    GUILayout.FlexibleSpace();
+                    DrawCustomMenuItemActions(
+                        index,
+                        items.arraySize,
+                        ref moveFrom,
+                        ref moveTo,
+                        ref duplicateIndex,
+                        ref removeIndex
+                    );
+                    EditorGUILayout.EndHorizontal();
+                }
+
+                if(newExpanded)
+                {
+                    EditorGUI.indentLevel++;
+                    DrawCustomMenuIdentity(item, index);
+                    EditorGUILayout.Space(3.0f);
+                    EditorGUILayout.LabelField(
+                        "开启时修改",
+                        EditorStyles.miniBoldLabel
+                    );
+                    DrawCustomMenuFloatControl(
+                        item,
+                        "TwoDimensionalness",
+                        "2D 强度",
+                        0.0f,
+                        1.0f
+                    );
+                    DrawCustomMenuFloatControl(
+                        item,
+                        "FacingDirection",
+                        "朝向",
+                        -1.0f,
+                        1.0f
+                    );
+                    DrawCustomMenuFloatControl(
+                        item,
+                        "LockAxis",
+                        "锁定 2D 轴",
+                        0.0f,
+                        1.0f
+                    );
+                    DrawCustomMenuFloatControl(
+                        item,
+                        "SquashZ",
+                        "Z 深度修正",
+                        0.0f,
+                        1.0f
+                    );
+                    DrawCustomMenuBoolControl(
+                        item,
+                        "CameraParallel2D",
+                        "剖面跟随相机"
+                    );
+                    DrawCustomMenuBoolControl(
+                        item,
+                        "OutlineIn2D",
+                        "启用 2D 轮廓"
+                    );
+
+                    if(string.IsNullOrWhiteSpace(parameter.stringValue))
+                    {
+                        EditorGUILayout.HelpBox(
+                            "参数名不能为空。",
+                            MessageType.Warning
+                        );
+                    }
+                    else
+                    {
+                        int count;
+                        if(parameterCounts.TryGetValue(
+                                parameter.stringValue,
+                                out count
+                            ) &&
+                            count > 1)
+                        {
+                            EditorGUILayout.HelpBox(
+                                "参数名与其他菜单项重复；构建时只会使用第一个。",
+                                MessageType.Warning
+                            );
+                        }
+                    }
+                    EditorGUI.indentLevel--;
+                }
+                EditorGUILayout.EndVertical();
+            }
+
+            bool changed = serializedConfiguration.ApplyModifiedProperties();
+            if(moveFrom >= 0 && moveTo >= 0)
+            {
+                serializedConfiguration.Update();
+                items.MoveArrayElement(moveFrom, moveTo);
+                changed |= serializedConfiguration.ApplyModifiedProperties();
+            }
+            else if(duplicateIndex >= 0)
+            {
+                serializedConfiguration.Update();
+                items.InsertArrayElementAtIndex(duplicateIndex);
+                SerializedProperty copy =
+                    items.GetArrayElementAtIndex(duplicateIndex + 1);
+                copy.FindPropertyRelative("ParameterName").stringValue =
+                    CreateCustomMenuParameterName(configuration);
+                string copiedName = copy.FindPropertyRelative("MenuName")
+                    .stringValue;
+                copy.FindPropertyRelative("MenuName").stringValue =
+                    string.IsNullOrWhiteSpace(copiedName)
+                        ? "2D 菜单 " + (duplicateIndex + 2)
+                        : copiedName + " 副本";
+                changed |= serializedConfiguration.ApplyModifiedProperties();
+            }
+            else if(removeIndex >= 0)
+            {
+                serializedConfiguration.Update();
+                items.DeleteArrayElementAtIndex(removeIndex);
+                changed |= serializedConfiguration.ApplyModifiedProperties();
+            }
+
+            if(GUILayout.Button("添加菜单项", GUILayout.Height(27.0f)))
+            {
+                RecordConfiguration(
+                    configuration,
+                    "添加 Waifu2d 自定义菜单项"
+                );
+                configuration.CustomMenuItems.Add(
+                    CreateDefaultCustomMenuItem(configuration)
+                );
+                expandedCustomMenuItems.Add(
+                    configuration.CustomMenuItems[
+                        configuration.CustomMenuItems.Count - 1
+                    ].ParameterName
+                );
+                changed = true;
+            }
+
+            if(changed) SaveConfiguration(configuration);
+        }
+
+        private void DrawCustomMenuIdentity(
+            SerializedProperty item,
+            int index
+        )
+        {
+            SerializedProperty menuParent =
+                item.FindPropertyRelative("MenuParent");
+            GameObject oldParent = menuParent.objectReferenceValue as GameObject;
+            EditorGUI.BeginChangeCheck();
+            GameObject newParent = (GameObject)EditorGUILayout.ObjectField(
+                new GUIContent(
+                    "菜单位置",
+                    "留空时安装到菜单根；也可以指定模型内的 MA Sub Menu、Menu Group、Menu Installer 或直接复用一个 MA Menu Item。"
+                ),
+                oldParent,
+                typeof(GameObject),
+                true
+            );
+            if(EditorGUI.EndChangeCheck() && IsValidToggleMenuParent(newParent))
+            {
+                menuParent.objectReferenceValue = newParent;
+            }
+
+            ModularAvatarMenuItem directMenuItem =
+                GetDirectToggleMenuItem(
+                    menuParent.objectReferenceValue as GameObject
+                );
+            SerializedProperty overrideSettings = item.FindPropertyRelative(
+                "OverrideDirectMenuItemSettings"
+            );
+            bool useComponentSettings = directMenuItem != null &&
+                !overrideSettings.boolValue;
+            if(directMenuItem != null)
+            {
+                bool newUseComponentSettings = EditorGUILayout.ToggleLeft(
+                    new GUIContent(
+                        "使用这个组件的参数",
+                        "开启时保留所选 MA Menu Item 的名称、图标、默认启用、保存和同步设置；关闭时由这里的设置覆盖。"
+                    ),
+                    useComponentSettings
+                );
+                overrideSettings.boolValue = !newUseComponentSettings;
+                useComponentSettings = newUseComponentSettings;
+            }
+
+            using(new EditorGUI.DisabledScope(useComponentSettings))
+            {
+                EditorGUILayout.PropertyField(
+                    item.FindPropertyRelative("MenuName"),
+                    new GUIContent(
+                        "菜单名称",
+                        "留空时根据参数编号使用默认的 2D 菜单名称；上下移动不会改变该名称。"
+                    )
+                );
+                EditorGUILayout.PropertyField(
+                    item.FindPropertyRelative("MenuIcon"),
+                    new GUIContent(
+                        "菜单图标",
+                        "留空时使用包内的默认透明图片。"
+                    )
+                );
+                if(position.width < 440.0f)
+                {
+                    DrawCompactBoolProperty(
+                        item,
+                        "DefaultEnabled",
+                        "默认启用"
+                    );
+                    DrawCompactBoolProperty(item, "Saved", "保存");
+                    DrawCompactBoolProperty(item, "Synced", "同步");
+                }
+                else
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    DrawCompactBoolProperty(
+                        item,
+                        "DefaultEnabled",
+                        "默认启用"
+                    );
+                    DrawCompactBoolProperty(item, "Saved", "保存");
+                    DrawCompactBoolProperty(item, "Synced", "同步");
+                    EditorGUILayout.EndHorizontal();
+                }
+            }
+            EditorGUILayout.PropertyField(
+                item.FindPropertyRelative("ParameterName"),
+                new GUIContent(
+                    "参数名",
+                    "每个菜单项必须使用独立参数；修改后会同步用于 BlendTree 和 MA 菜单。"
+                )
+            );
+        }
+
+        private static void DrawCompactBoolProperty(
+            SerializedProperty item,
+            string propertyName,
+            string label
+        )
+        {
+            SerializedProperty property =
+                item.FindPropertyRelative(propertyName);
+            property.boolValue = EditorGUILayout.ToggleLeft(
+                label,
+                property.boolValue
+            );
+        }
+
+        private static void DrawCustomMenuItemActions(
+            int index,
+            int itemCount,
+            ref int moveFrom,
+            ref int moveTo,
+            ref int duplicateIndex,
+            ref int removeIndex
+        )
+        {
+            using(new EditorGUI.DisabledScope(index == 0))
+            {
+                if(GUILayout.Button("↑", GUILayout.Width(24.0f)))
+                {
+                    moveFrom = index;
+                    moveTo = index - 1;
+                }
+            }
+            using(new EditorGUI.DisabledScope(index >= itemCount - 1))
+            {
+                if(GUILayout.Button("↓", GUILayout.Width(24.0f)))
+                {
+                    moveFrom = index;
+                    moveTo = index + 1;
+                }
+            }
+            if(GUILayout.Button("复制", GUILayout.Width(42.0f)))
+                duplicateIndex = index;
+            if(GUILayout.Button("删除", GUILayout.Width(42.0f)))
+                removeIndex = index;
+        }
+
+        private void DrawCustomMenuFloatControl(
+            SerializedProperty item,
+            string prefix,
+            string label,
+            float minimum,
+            float maximum
+        )
+        {
+            SerializedProperty control =
+                item.FindPropertyRelative("Control" + prefix);
+            SerializedProperty value =
+                item.FindPropertyRelative(prefix + "Value");
+            bool compact = position.width < 600.0f;
+
+            if(compact)
+            {
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                control.boolValue = EditorGUILayout.ToggleLeft(
+                    label,
+                    control.boolValue
+                );
+                using(new EditorGUI.DisabledScope(!control.boolValue))
+                {
+                    EditorGUI.indentLevel++;
+                    DrawCustomMenuValueSlider(
+                        value,
+                        minimum,
+                        maximum
+                    );
+                    EditorGUI.indentLevel--;
+                }
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            control.boolValue = EditorGUILayout.ToggleLeft(
+                label,
+                control.boolValue,
+                GUILayout.Width(118.0f)
+            );
+            using(new EditorGUI.DisabledScope(!control.boolValue))
+            {
+                DrawCustomMenuValueSlider(
+                    value,
+                    minimum,
+                    maximum
+                );
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private static void DrawCustomMenuValueSlider(
+            SerializedProperty value,
+            float minimum,
+            float maximum
+        )
+        {
+            value.floatValue = EditorGUILayout.Slider(
+                value.floatValue,
+                minimum,
+                maximum
+            );
+        }
+
+        private void DrawCustomMenuBoolControl(
+            SerializedProperty item,
+            string prefix,
+            string label
+        )
+        {
+            SerializedProperty control =
+                item.FindPropertyRelative("Control" + prefix);
+            SerializedProperty value =
+                item.FindPropertyRelative(prefix + "Value");
+            bool compact = position.width < 600.0f;
+            if(compact)
+            {
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                control.boolValue = EditorGUILayout.ToggleLeft(
+                    label,
+                    control.boolValue
+                );
+                using(new EditorGUI.DisabledScope(!control.boolValue))
+                {
+                    EditorGUI.indentLevel++;
+                    value.boolValue = EditorGUILayout.ToggleLeft(
+                        "开启时启用",
+                        value.boolValue
+                    );
+                    EditorGUI.indentLevel--;
+                }
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            control.boolValue = EditorGUILayout.ToggleLeft(
+                label,
+                control.boolValue,
+                GUILayout.Width(118.0f)
+            );
+            using(new EditorGUI.DisabledScope(!control.boolValue))
+            {
+                value.boolValue = EditorGUILayout.ToggleLeft(
+                    "开启时启用",
+                    value.boolValue
+                );
+            }
+            EditorGUILayout.EndHorizontal();
         }
 
         private void DrawToggleMenuSettings(
@@ -2689,11 +3197,17 @@ namespace LyumaShader
             if(modelRoot == null) return null;
             LyumaWaifu2dAvatarConfig existing =
                 modelRoot.GetComponent<LyumaWaifu2dAvatarConfig>();
-            if(existing != null || !create) return existing;
+            if(existing != null)
+            {
+                EnsureCustomMenuConfiguration(existing);
+                return existing;
+            }
+            if(!create) return null;
 
             if(!EditorUtility.IsPersistent(modelRoot))
             {
                 existing = Undo.AddComponent<LyumaWaifu2dAvatarConfig>(modelRoot);
+                EnsureCustomMenuConfiguration(existing);
                 SaveConfiguration(existing);
                 return existing;
             }
@@ -2733,9 +3247,92 @@ namespace LyumaShader
             }
 
             modelRoot = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
-            return modelRoot != null
+            existing = modelRoot != null
                 ? modelRoot.GetComponent<LyumaWaifu2dAvatarConfig>()
                 : null;
+            EnsureCustomMenuConfiguration(existing);
+            return existing;
+        }
+
+        private void EnsureCustomMenuConfiguration(
+            LyumaWaifu2dAvatarConfig configuration
+        )
+        {
+            if(configuration == null) return;
+            if(configuration.MigrateLegacyMenu())
+            {
+                SaveConfiguration(configuration);
+            }
+        }
+
+        private static LyumaWaifu2dAvatarConfig.CustomMenuItem
+            CreateDefaultCustomMenuItem(
+                LyumaWaifu2dAvatarConfig configuration
+            )
+        {
+            return new LyumaWaifu2dAvatarConfig.CustomMenuItem
+            {
+                ParameterName = CreateCustomMenuParameterName(configuration),
+                MenuName = configuration != null &&
+                    configuration.CustomMenuItems != null &&
+                    configuration.CustomMenuItems.Count > 0
+                        ? "2D 菜单 " +
+                            (configuration.CustomMenuItems.Count + 1)
+                        : string.Empty
+            };
+        }
+
+        private static string CreateCustomMenuParameterName(
+            LyumaWaifu2dAvatarConfig configuration
+        )
+        {
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            if(configuration != null &&
+                configuration.CustomMenuItems != null)
+            {
+                foreach(LyumaWaifu2dAvatarConfig.CustomMenuItem item in
+                    configuration.CustomMenuItems)
+                {
+                    if(item != null &&
+                        !string.IsNullOrWhiteSpace(item.ParameterName))
+                    {
+                        used.Add(item.ParameterName);
+                    }
+                }
+            }
+
+            for(int index = 1; ; index++)
+            {
+                string candidate = ToggleParameterName + "/" + index;
+                if(!used.Contains(candidate)) return candidate;
+            }
+        }
+
+        private static string GetCustomMenuFallbackTitle(
+            string parameterName,
+            int fallbackIndex
+        )
+        {
+            int parameterIndex = GetCustomMenuParameterIndex(parameterName);
+            if(parameterName == ToggleParameterName || parameterIndex == 1)
+                return "2D";
+            return "2D 菜单 " +
+                (parameterIndex > 1 ? parameterIndex : fallbackIndex + 1);
+        }
+
+        private static int GetCustomMenuParameterIndex(string parameterName)
+        {
+            if(string.IsNullOrWhiteSpace(parameterName)) return 0;
+            string prefix = ToggleParameterName + "/";
+            if(!parameterName.StartsWith(prefix, StringComparison.Ordinal))
+                return 0;
+            int value;
+            return int.TryParse(
+                    parameterName.Substring(prefix.Length),
+                    out value
+                ) && value > 0
+                    ? value
+                    : 0;
         }
 
         private bool RemoveConfiguration()

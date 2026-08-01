@@ -77,9 +77,9 @@ namespace LyumaShader
                     );
                 }
 
-                if(configuration.GenerateToggle)
+                if(configuration.CustomMenuItems.Count > 0)
                 {
-                    GenerateToggle(context, configuration, state);
+                    GenerateCustomMenus(context, configuration, state);
                 }
             }
         }
@@ -530,14 +530,12 @@ namespace LyumaShader
             return false;
         }
 
-        private static void GenerateToggle(
+        private static void GenerateCustomMenus(
             BuildContext context,
             ConfigurationSnapshot configuration,
             BuildState state
         )
         {
-            if(HasExistingToggle(configuration.Root)) return;
-
             List<Renderer> renderers = configuration.Root
                 .GetComponentsInChildren<Renderer>(true)
                 .Where(renderer =>
@@ -547,73 +545,147 @@ namespace LyumaShader
                 .ToList();
             if(renderers.Count == 0) return;
 
-            AnimationClip disabledClip = CreateStrengthClip(
-                context.AvatarRootObject,
-                renderers,
-                renderer => 0.0f,
-                renderer => RendererUsesMotchiriRule(renderer, state)
-                    ? (float?)1.0f
-                    : null
-            );
-            AnimationClip enabledClip = CreateStrengthClip(
-                context.AvatarRootObject,
-                renderers,
-                renderer => GetRendererTwoDimensionalness(
-                    renderer,
-                    state,
-                    configuration
-                ),
-                renderer => GetRendererMotchiriCustomLogicIn2D(renderer, state)
-            );
-            disabledClip.name = "Lyuma2D_关闭";
-            enabledClip.name = "Lyuma2D_开启";
-
-            var blendTree = new BlendTree
+            var menuItems = new List<MenuItemSnapshot>();
+            var parameters = new HashSet<string>(StringComparer.Ordinal);
+            foreach(MenuItemSnapshot item in configuration.CustomMenuItems)
             {
-                name = "Lyuma2D_BlendTree",
-                blendType = BlendTreeType.Simple1D,
-                blendParameter = ToggleParameterName,
-                minThreshold = 0.0f,
-                maxThreshold = 1.0f,
-                useAutomaticThresholds = false
-            };
-            blendTree.children = new[]
-            {
-                new ChildMotion
+                if(item == null ||
+                    !item.Enabled ||
+                    string.IsNullOrWhiteSpace(item.ParameterName) ||
+                    !parameters.Add(item.ParameterName))
                 {
-                    motion = disabledClip,
-                    threshold = 0.0f,
-                    timeScale = 1.0f,
-                    directBlendParameter = "__ModularAvatarInternal/One"
-                },
-                new ChildMotion
-                {
-                    motion = enabledClip,
-                    threshold = 1.0f,
-                    timeScale = 1.0f,
-                    directBlendParameter = "__ModularAvatarInternal/One"
+                    continue;
                 }
-            };
+                menuItems.Add(item);
+            }
+            if(menuItems.Count == 0) return;
 
-            context.AssetSaver.SaveAsset(disabledClip);
-            context.AssetSaver.SaveAsset(enabledClip);
-            context.AssetSaver.SaveAsset(blendTree);
+            AnimationClip baselineClip = CreateCustomMenuClip(
+                context.AvatarRootObject,
+                renderers,
+                configuration,
+                state,
+                null
+            );
+            baselineClip.name = "Lyuma2D_菜单基础值";
+            context.AssetSaver.SaveAsset(baselineClip);
 
+            Motion selectedMotion = baselineClip;
+
+            for(int index = 0; index < menuItems.Count; index++)
+            {
+                MenuItemSnapshot item = menuItems[index];
+                AnimationClip itemClip = CreateCustomMenuClip(
+                    context.AvatarRootObject,
+                    renderers,
+                    configuration,
+                    state,
+                    item
+                );
+                itemClip.name = "Lyuma2D_菜单_" + (index + 1);
+                context.AssetSaver.SaveAsset(itemClip);
+
+                var priorityLayer = new BlendTree
+                {
+                    name = "Lyuma2D_优先级_" + (index + 1),
+                    blendType = BlendTreeType.Simple1D,
+                    blendParameter = item.ParameterName,
+                    blendParameterY = item.ParameterName,
+                    minThreshold = 0.0f,
+                    maxThreshold = 1.0f,
+                    useAutomaticThresholds = false,
+                    children = new[]
+                    {
+                        new ChildMotion
+                        {
+                            motion = selectedMotion,
+                            threshold = 0.0f,
+                            timeScale = 1.0f
+                        },
+                        new ChildMotion
+                        {
+                            motion = itemClip,
+                            threshold = 1.0f,
+                            timeScale = 1.0f
+                        }
+                    }
+                };
+                context.AssetSaver.SaveAsset(priorityLayer);
+                selectedMotion = priorityLayer;
+            }
+
+            for(int index = 0; index < menuItems.Count; index++)
+            {
+                CreateCustomMenuItem(
+                    configuration,
+                    menuItems[index],
+                    index
+                );
+            }
+
+            var controllerObject = new GameObject("Lyuma2D 自定义菜单控制");
+            controllerObject.transform.SetParent(
+                configuration.Root.transform,
+                false
+            );
+            ModularAvatarMergeBlendTree mergeBlendTree =
+                controllerObject.AddComponent<ModularAvatarMergeBlendTree>();
+            mergeBlendTree.Motion = selectedMotion;
+            mergeBlendTree.PathMode = MergeAnimatorPathMode.Absolute;
+        }
+
+        private static string GetCustomMenuFallbackDisplayName(
+            string parameterName,
+            int fallbackIndex
+        )
+        {
+            int parameterIndex = GetCustomMenuParameterIndex(parameterName);
+            if(parameterName == ToggleParameterName || parameterIndex == 1)
+                return ToggleDisplayName;
+            return "2D 菜单 " +
+                (parameterIndex > 1 ? parameterIndex : fallbackIndex + 1);
+        }
+
+        private static int GetCustomMenuParameterIndex(string parameterName)
+        {
+            if(string.IsNullOrWhiteSpace(parameterName)) return 0;
+            string prefix = ToggleParameterName + "/";
+            if(!parameterName.StartsWith(prefix, StringComparison.Ordinal))
+                return 0;
+            int value;
+            return int.TryParse(
+                    parameterName.Substring(prefix.Length),
+                    out value
+                ) && value > 0
+                    ? value
+                    : 0;
+        }
+
+        private static void CreateCustomMenuItem(
+            ConfigurationSnapshot configuration,
+            MenuItemSnapshot settings,
+            int index
+        )
+        {
             bool installAtRoot;
             ModularAvatarMenuInstaller selectedInstaller;
             ModularAvatarMenuItem selectedMenuItem;
             VRCExpressionsMenu selectedTargetMenu;
             GameObject toggleParent = ResolveToggleMenuParent(
-                configuration,
+                configuration.Root,
+                settings,
                 out installAtRoot,
                 out selectedInstaller,
                 out selectedMenuItem,
                 out selectedTargetMenu
             );
             string toggleDisplayName =
-                string.IsNullOrWhiteSpace(configuration.ToggleMenuName)
-                    ? ToggleDisplayName
-                    : configuration.ToggleMenuName;
+                string.IsNullOrWhiteSpace(settings.MenuName)
+                    ? GetCustomMenuFallbackDisplayName(
+                        settings.ParameterName,
+                        index
+                    )
+                    : settings.MenuName;
             GameObject toggleObject;
             ModularAvatarMenuItem menuItem;
             if(selectedMenuItem != null)
@@ -631,24 +703,23 @@ namespace LyumaShader
                 menuItem =
                     toggleObject.AddComponent<ModularAvatarMenuItem>();
             }
-            menuItem.PortableControl.Parameter = ToggleParameterName;
+            menuItem.PortableControl.Parameter = settings.ParameterName;
             menuItem.PortableControl.Value = 1.0f;
             menuItem.automaticValue = true;
             if(selectedMenuItem == null ||
-                configuration.OverrideDirectMenuItemSettings)
+                settings.OverrideDirectMenuItemSettings)
             {
                 menuItem.label = toggleDisplayName;
                 menuItem.PortableControl.Type = PortableControlType.Toggle;
                 menuItem.PortableControl.Icon =
-                    configuration.ToggleMenuIcon != null
-                        ? configuration.ToggleMenuIcon
+                    settings.MenuIcon != null
+                        ? settings.MenuIcon
                         : AssetDatabase.LoadAssetAtPath<Texture2D>(
                             ToggleIconPath
                         );
-                menuItem.isSynced = configuration.ToggleSynced;
-                menuItem.isSaved = configuration.ToggleSaved;
-                menuItem.isDefault =
-                    configuration.ToggleDefaultEnabled;
+                menuItem.isSynced = settings.Synced;
+                menuItem.isSaved = settings.Saved;
+                menuItem.isDefault = settings.DefaultEnabled;
             }
 
             if(installAtRoot)
@@ -667,14 +738,11 @@ namespace LyumaShader
                     installer.installTargetMenu = selectedTargetMenu;
                 }
             }
-            ModularAvatarMergeBlendTree mergeBlendTree =
-                toggleObject.AddComponent<ModularAvatarMergeBlendTree>();
-            mergeBlendTree.Motion = blendTree;
-            mergeBlendTree.PathMode = MergeAnimatorPathMode.Absolute;
         }
 
         private static GameObject ResolveToggleMenuParent(
-            ConfigurationSnapshot configuration,
+            GameObject root,
+            MenuItemSnapshot settings,
             out bool installAtRoot,
             out ModularAvatarMenuInstaller selectedInstaller,
             out ModularAvatarMenuItem selectedMenuItem,
@@ -685,14 +753,14 @@ namespace LyumaShader
             selectedInstaller = null;
             selectedMenuItem = null;
             selectedTargetMenu = null;
-            GameObject logicalParent = configuration.ToggleMenuParent;
+            GameObject logicalParent = settings.MenuParent;
             if(logicalParent == null ||
-                logicalParent == configuration.Root ||
+                logicalParent == root ||
                 !logicalParent.transform.IsChildOf(
-                    configuration.Root.transform
+                    root.transform
                 ))
             {
-                return configuration.Root;
+                return root;
             }
 
             ModularAvatarMenuItem menuItem =
@@ -722,9 +790,9 @@ namespace LyumaShader
                             ? menuItem.menuSource_otherObjectChildren
                             : logicalParent;
                     if(container != null &&
-                        (container == configuration.Root ||
+                        (container == root ||
                             container.transform.IsChildOf(
-                                configuration.Root.transform
+                                root.transform
                             )))
                     {
                         installAtRoot = false;
@@ -739,7 +807,7 @@ namespace LyumaShader
                     >();
                 if(existingInstaller != null ||
                     IsIncludedByMenuSource(
-                        configuration.Root,
+                        root,
                         logicalParent
                     ))
                 {
@@ -756,9 +824,9 @@ namespace LyumaShader
                     ? menuGroup.targetObject
                     : logicalParent;
                 if(container != null &&
-                    (container == configuration.Root ||
+                    (container == root ||
                         container.transform.IsChildOf(
-                            configuration.Root.transform
+                            root.transform
                         )))
                 {
                     installAtRoot = false;
@@ -776,7 +844,7 @@ namespace LyumaShader
                 return logicalParent;
             }
 
-            return configuration.Root;
+            return root;
         }
 
         private static bool IsIncludedByMenuSource(
@@ -831,34 +899,18 @@ namespace LyumaShader
             return false;
         }
 
-        private static bool HasExistingToggle(GameObject root)
-        {
-            foreach(ModularAvatarMenuItem item in
-                root.GetComponentsInChildren<ModularAvatarMenuItem>(true))
-            {
-                if(item != null &&
-                    item.PortableControl != null &&
-                    string.Equals(
-                        item.PortableControl.Parameter,
-                        ToggleParameterName,
-                        StringComparison.Ordinal
-                    ))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private static AnimationClip CreateStrengthClip(
+        private static AnimationClip CreateCustomMenuClip(
             GameObject avatarRoot,
             IEnumerable<Renderer> renderers,
-            Func<Renderer, float> valueProvider,
-            Func<Renderer, float?> customLogicProvider
+            ConfigurationSnapshot configuration,
+            BuildState state,
+            MenuItemSnapshot activeItem
         )
         {
             var clip = new AnimationClip { frameRate = 60.0f };
             var bindings = new HashSet<string>(StringComparer.Ordinal);
+            bool baseline = activeItem == null;
+
             foreach(Renderer renderer in renderers)
             {
                 if(renderer == null) continue;
@@ -870,44 +922,201 @@ namespace LyumaShader
                 string key = path + "\n" + rendererType.FullName;
                 if(!bindings.Add(key)) continue;
 
-                EditorCurveBinding binding = EditorCurveBinding.FloatCurve(
-                    path,
-                    rendererType,
-                    "material._2d_coef"
+                float baseStrength = 0.0f;
+                float baseFacing = GetRendererFacingDirection(
+                    renderer,
+                    state,
+                    configuration
                 );
-                AnimationUtility.SetEditorCurve(
-                    clip,
-                    binding,
-                    AnimationCurve.Constant(
-                        0.0f,
-                        1.0f / 60.0f,
-                        Mathf.Clamp01(valueProvider(renderer))
-                    )
+                float baseLockAxis = GetRendererLockAxis(
+                    renderer,
+                    state,
+                    configuration
                 );
+                float baseSquashZ = GetRendererSquashZ(
+                    renderer,
+                    state,
+                    configuration
+                );
+                float baseCameraParallel =
+                    configuration.CameraParallel2D ? 1.0f : 0.0f;
+                float baseOutline = GetRendererOutlineIn2D(
+                    renderer,
+                    state,
+                    configuration
+                );
+                bool hasIndependentStrength =
+                    RendererUsesIndependentRule(
+                        renderer,
+                        state,
+                        rule => rule.IndependentTwoDimensionalness
+                    );
+                bool hasIndependentFacing =
+                    RendererUsesIndependentRule(
+                        renderer,
+                        state,
+                        rule => rule.IndependentFacingDirection
+                    );
+                bool hasIndependentLockAxis =
+                    RendererUsesIndependentRule(
+                        renderer,
+                        state,
+                        rule => rule.IndependentLockAxis
+                    );
+                bool hasIndependentSquashZ =
+                    RendererUsesIndependentRule(
+                        renderer,
+                        state,
+                        rule => rule.IndependentSquashZ
+                    );
+                bool hasIndependentOutline =
+                    RendererUsesIndependentRule(
+                        renderer,
+                        state,
+                        rule => rule.IndependentOutlineIn2D
+                    );
 
-                float? customLogic = customLogicProvider != null
-                    ? customLogicProvider(renderer)
-                    : null;
-                if(customLogic.HasValue)
+                if(!hasIndependentStrength)
                 {
-                    EditorCurveBinding customLogicBinding =
-                        EditorCurveBinding.FloatCurve(
+                    float value = baseline
+                        ? baseStrength
+                        : GetRendererTwoDimensionalness(
+                            renderer,
+                            state,
+                            configuration
+                        );
+                    if(!baseline && activeItem.ControlTwoDimensionalness)
+                    {
+                        value = Mathf.Clamp01(
+                            activeItem.TwoDimensionalnessValue
+                        );
+                    }
+                    SetMaterialCurve(
+                        clip,
+                        path,
+                        rendererType,
+                        "_2d_coef",
+                        value
+                    );
+
+                    float? customLogic =
+                        GetRendererMotchiriCustomLogicIn2D(renderer, state);
+                    if(customLogic.HasValue)
+                    {
+                        SetMaterialCurve(
+                            clip,
                             path,
                             rendererType,
-                            "material." + CustomLogicProperty
+                            CustomLogicProperty,
+                            !baseline
+                                ? Mathf.Clamp01(customLogic.Value)
+                                : 1.0f
                         );
-                    AnimationUtility.SetEditorCurve(
+                    }
+                }
+
+                if(!hasIndependentFacing)
+                {
+                    float value = baseFacing;
+                    if(!baseline && activeItem.ControlFacingDirection)
+                    {
+                        value = Mathf.Clamp(
+                            activeItem.FacingDirectionValue,
+                            -1.0f,
+                            1.0f
+                        );
+                    }
+                    SetMaterialCurve(
                         clip,
-                        customLogicBinding,
-                        AnimationCurve.Constant(
-                            0.0f,
-                            1.0f / 60.0f,
-                            Mathf.Clamp01(customLogic.Value)
-                        )
+                        path,
+                        rendererType,
+                        "_facing_coef",
+                        value
+                    );
+                }
+
+                if(!hasIndependentLockAxis)
+                {
+                    float value = baseLockAxis;
+                    if(!baseline && activeItem.ControlLockAxis)
+                    {
+                        value = Mathf.Clamp01(
+                            activeItem.LockAxisValue
+                        );
+                    }
+                    SetMaterialCurve(
+                        clip,
+                        path,
+                        rendererType,
+                        "_lock2daxis_coef",
+                        value
+                    );
+                }
+
+                if(!hasIndependentSquashZ)
+                {
+                    float value = baseSquashZ;
+                    if(!baseline && activeItem.ControlSquashZ)
+                    {
+                        value = Mathf.Clamp01(
+                            activeItem.SquashZValue
+                        );
+                    }
+                    SetMaterialCurve(
+                        clip,
+                        path,
+                        rendererType,
+                        "_zcorrect_coef",
+                        value
+                    );
+                }
+
+                SetMaterialCurve(
+                    clip,
+                    path,
+                    rendererType,
+                    "_lyuma_camera_parallel_2d",
+                    !baseline && activeItem.ControlCameraParallel2D
+                        ? (activeItem.CameraParallel2DValue ? 1.0f : 0.0f)
+                        : baseCameraParallel
+                );
+
+                if(!hasIndependentOutline)
+                {
+                    SetMaterialCurve(
+                        clip,
+                        path,
+                        rendererType,
+                        "_lyuma_outline_2d",
+                        !baseline && activeItem.ControlOutlineIn2D
+                            ? (activeItem.OutlineIn2DValue
+                                ? 1.0f
+                                : 0.0f)
+                            : baseOutline
                     );
                 }
             }
             return clip;
+        }
+
+        private static void SetMaterialCurve(
+            AnimationClip clip,
+            string path,
+            Type rendererType,
+            string propertyName,
+            float value
+        )
+        {
+            EditorCurveBinding binding = EditorCurveBinding.FloatCurve(
+                path,
+                rendererType,
+                "material." + propertyName
+            );
+            AnimationUtility.SetEditorCurve(
+                clip,
+                binding,
+                AnimationCurve.Constant(0.0f, 1.0f / 60.0f, value)
+            );
         }
 
         private static Renderer ResolveRenderer(
@@ -1013,6 +1222,138 @@ namespace LyumaShader
                 found = true;
             }
             return value;
+        }
+
+        private static float GetRendererFacingDirection(
+            Renderer renderer,
+            BuildState state,
+            ConfigurationSnapshot fallback
+        )
+        {
+            return GetRendererRuleValue(
+                renderer,
+                state,
+                fallback.FacingDirection,
+                rule => rule.FacingDirection,
+                false
+            );
+        }
+
+        private static float GetRendererLockAxis(
+            Renderer renderer,
+            BuildState state,
+            ConfigurationSnapshot fallback
+        )
+        {
+            return GetRendererRuleValue(
+                renderer,
+                state,
+                fallback.LockAxis,
+                rule => rule.LockAxis,
+                false
+            );
+        }
+
+        private static float GetRendererSquashZ(
+            Renderer renderer,
+            BuildState state,
+            ConfigurationSnapshot fallback
+        )
+        {
+            return GetRendererRuleValue(
+                renderer,
+                state,
+                fallback.SquashZ,
+                rule => rule.SquashZ,
+                false
+            );
+        }
+
+        private static float GetRendererOutlineIn2D(
+            Renderer renderer,
+            BuildState state,
+            ConfigurationSnapshot fallback
+        )
+        {
+            return GetRendererRuleValue(
+                renderer,
+                state,
+                fallback.OutlineIn2D ? 1.0f : 0.0f,
+                rule => rule.OutlineIn2D ? 1.0f : 0.0f,
+                true
+            );
+        }
+
+        private static float GetRendererRuleValue(
+            Renderer renderer,
+            BuildState state,
+            float fallback,
+            Func<RuleSnapshot, float> selector,
+            bool useMinimum
+        )
+        {
+            if(renderer == null || state == null || selector == null)
+                return fallback;
+
+            float value = fallback;
+            bool found = false;
+            foreach(Material material in renderer.sharedMaterials)
+            {
+                ConfigurationSnapshot configuration;
+                RuleSnapshot rule;
+                if(!state.TryFindRule(
+                        material,
+                        renderer,
+                        out configuration,
+                        out rule
+                    ) ||
+                    rule == null ||
+                    !rule.Convert)
+                {
+                    continue;
+                }
+
+                float candidate = selector(rule);
+                if(!found)
+                {
+                    value = candidate;
+                    found = true;
+                }
+                else if(useMinimum)
+                {
+                    value = Mathf.Min(value, candidate);
+                }
+            }
+            return value;
+        }
+
+        private static bool RendererUsesIndependentRule(
+            Renderer renderer,
+            BuildState state,
+            Func<RuleSnapshot, bool> selector
+        )
+        {
+            if(renderer == null || state == null || selector == null)
+                return false;
+
+            foreach(Material material in renderer.sharedMaterials)
+            {
+                ConfigurationSnapshot configuration;
+                RuleSnapshot rule;
+                if(state.TryFindRule(
+                        material,
+                        renderer,
+                        out configuration,
+                        out rule
+                    ) &&
+                    rule != null &&
+                    rule.Convert &&
+                    selector(rule))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static Transform FindHips(GameObject avatarRoot)
@@ -1289,14 +1630,8 @@ namespace LyumaShader
             internal readonly float SquashZ;
             internal readonly bool CameraParallel2D;
             internal readonly bool OutlineIn2D;
-            internal readonly bool GenerateToggle;
-            internal readonly string ToggleMenuName;
-            internal readonly Texture2D ToggleMenuIcon;
-            internal readonly GameObject ToggleMenuParent;
-            internal readonly bool OverrideDirectMenuItemSettings;
-            internal readonly bool ToggleDefaultEnabled;
-            internal readonly bool ToggleSaved;
-            internal readonly bool ToggleSynced;
+            internal readonly List<MenuItemSnapshot> CustomMenuItems =
+                new List<MenuItemSnapshot>();
             internal readonly bool PreviewIn2D;
             internal readonly bool RepairRootBones;
             internal readonly bool ConvertStaticMeshes;
@@ -1314,20 +1649,30 @@ namespace LyumaShader
                 SquashZ = component.SquashZ;
                 CameraParallel2D = component.CameraParallel2D;
                 OutlineIn2D = !component.DisableOutlineIn2D;
-                GenerateToggle = component.GenerateToggle;
-                ToggleMenuName = component.ToggleMenuName;
-                ToggleMenuIcon = component.ToggleMenuIcon;
-                ToggleMenuParent = component.ToggleMenuParent;
-                OverrideDirectMenuItemSettings =
-                    component.OverrideDirectMenuItemSettings;
-                ToggleDefaultEnabled = component.ToggleDefaultEnabled;
-                ToggleSaved = component.ToggleSaved;
-                ToggleSynced = component.ToggleSynced;
                 PreviewIn2D = component.PreviewIn2D;
                 RepairRootBones = component.RepairRootBones;
                 ConvertStaticMeshes = component.ConvertStaticMeshes;
                 ProtectParticleMaterials =
                     component.ProtectParticleMaterials;
+
+                if(component.CustomMenuVersion >= 1)
+                {
+                    if(component.CustomMenuItems != null)
+                    {
+                        foreach(LyumaWaifu2dAvatarConfig.CustomMenuItem item in
+                            component.CustomMenuItems)
+                        {
+                            if(item != null)
+                                CustomMenuItems.Add(
+                                    new MenuItemSnapshot(item)
+                                );
+                        }
+                    }
+                }
+                else if(component.GenerateToggle)
+                {
+                    CustomMenuItems.Add(new MenuItemSnapshot(component));
+                }
 
                 if(component.Materials == null) return;
                 foreach(LyumaWaifu2dAvatarConfig.MaterialRule source in
@@ -1366,6 +1711,79 @@ namespace LyumaShader
             }
         }
 
+        private sealed class MenuItemSnapshot
+        {
+            internal readonly bool Enabled;
+            internal readonly string ParameterName;
+            internal readonly string MenuName;
+            internal readonly Texture2D MenuIcon;
+            internal readonly GameObject MenuParent;
+            internal readonly bool OverrideDirectMenuItemSettings;
+            internal readonly bool DefaultEnabled;
+            internal readonly bool Saved;
+            internal readonly bool Synced;
+            internal readonly bool ControlTwoDimensionalness;
+            internal readonly float TwoDimensionalnessValue;
+            internal readonly bool ControlFacingDirection;
+            internal readonly float FacingDirectionValue;
+            internal readonly bool ControlLockAxis;
+            internal readonly float LockAxisValue;
+            internal readonly bool ControlSquashZ;
+            internal readonly float SquashZValue;
+            internal readonly bool ControlCameraParallel2D;
+            internal readonly bool CameraParallel2DValue;
+            internal readonly bool ControlOutlineIn2D;
+            internal readonly bool OutlineIn2DValue;
+
+            internal MenuItemSnapshot(
+                LyumaWaifu2dAvatarConfig.CustomMenuItem source
+            )
+            {
+                Enabled = source.Enabled;
+                ParameterName = source.ParameterName;
+                MenuName = source.MenuName;
+                MenuIcon = source.MenuIcon;
+                MenuParent = source.MenuParent;
+                OverrideDirectMenuItemSettings =
+                    source.OverrideDirectMenuItemSettings;
+                DefaultEnabled = source.DefaultEnabled;
+                Saved = source.Saved;
+                Synced = source.Synced;
+                ControlTwoDimensionalness =
+                    source.ControlTwoDimensionalness;
+                TwoDimensionalnessValue =
+                    source.TwoDimensionalnessValue;
+                ControlFacingDirection = source.ControlFacingDirection;
+                FacingDirectionValue = source.FacingDirectionValue;
+                ControlLockAxis = source.ControlLockAxis;
+                LockAxisValue = source.LockAxisValue;
+                ControlSquashZ = source.ControlSquashZ;
+                SquashZValue = source.SquashZValue;
+                ControlCameraParallel2D =
+                    source.ControlCameraParallel2D;
+                CameraParallel2DValue = source.CameraParallel2DValue;
+                ControlOutlineIn2D = source.ControlOutlineIn2D;
+                OutlineIn2DValue = source.OutlineIn2DValue;
+            }
+
+            internal MenuItemSnapshot(LyumaWaifu2dAvatarConfig legacy)
+            {
+                Enabled = true;
+                ParameterName = ToggleParameterName;
+                MenuName = legacy.ToggleMenuName;
+                MenuIcon = legacy.ToggleMenuIcon;
+                MenuParent = legacy.ToggleMenuParent;
+                OverrideDirectMenuItemSettings =
+                    legacy.OverrideDirectMenuItemSettings;
+                DefaultEnabled = legacy.ToggleDefaultEnabled;
+                Saved = legacy.ToggleSaved;
+                Synced = legacy.ToggleSynced;
+                ControlTwoDimensionalness = true;
+                TwoDimensionalnessValue = 0.99f;
+                OutlineIn2DValue = true;
+            }
+        }
+
         private sealed class RuleSnapshot
         {
             internal readonly Material Source;
@@ -1378,6 +1796,11 @@ namespace LyumaShader
             internal readonly float LockAxis;
             internal readonly float SquashZ;
             internal readonly bool OutlineIn2D;
+            internal readonly bool IndependentTwoDimensionalness;
+            internal readonly bool IndependentFacingDirection;
+            internal readonly bool IndependentLockAxis;
+            internal readonly bool IndependentSquashZ;
+            internal readonly bool IndependentOutlineIn2D;
 
             internal RuleSnapshot(
                 LyumaWaifu2dAvatarConfig.MaterialRule source,
@@ -1389,24 +1812,30 @@ namespace LyumaShader
                 MergeCustomShader = source.MergeCustomShader;
                 KeepCustomLogicIn2D = source.EnableCustomLogicIn2D;
                 FlattenMaterialVariant = source.FlattenMaterialVariant;
-                TwoDimensionalness = source.OverrideParameters &&
-                    !source.UseGlobalTwoDimensionalness
+                IndependentTwoDimensionalness =
+                    source.OverrideParameters &&
+                    !source.UseGlobalTwoDimensionalness;
+                IndependentFacingDirection = source.OverrideParameters &&
+                    !source.UseGlobalFacingDirection;
+                IndependentLockAxis = source.OverrideParameters &&
+                    !source.UseGlobalLockAxis;
+                IndependentSquashZ = source.OverrideParameters &&
+                    !source.UseGlobalSquashZ;
+                IndependentOutlineIn2D = source.OverrideParameters &&
+                    source.OverrideOutlineIn2D;
+                TwoDimensionalness = IndependentTwoDimensionalness
                     ? source.TwoDimensionalness
                     : configuration.TwoDimensionalness;
-                FacingDirection = source.OverrideParameters &&
-                    !source.UseGlobalFacingDirection
+                FacingDirection = IndependentFacingDirection
                     ? source.FacingDirection
                     : configuration.FacingDirection;
-                LockAxis = source.OverrideParameters &&
-                    !source.UseGlobalLockAxis
+                LockAxis = IndependentLockAxis
                     ? source.LockAxis
                     : configuration.LockAxis;
-                SquashZ = source.OverrideParameters &&
-                    !source.UseGlobalSquashZ
+                SquashZ = IndependentSquashZ
                     ? source.SquashZ
                     : configuration.SquashZ;
-                OutlineIn2D = source.OverrideParameters &&
-                    source.OverrideOutlineIn2D
+                OutlineIn2D = IndependentOutlineIn2D
                     ? !source.DisableOutlineIn2D
                     : configuration.OutlineIn2D;
             }

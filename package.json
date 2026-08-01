@@ -1,6 +1,6 @@
 {
   "name": "com.zhuozhi.lyumashader-extended",
-  "version": "2.0.11",
+  "version": "2.1.0",
   "displayName": "LyumaShader 扩展版",
   "description": "为 LyumaShader Waifu2d 增加 lilToon、Poiyomi、NDMF 非破坏式配置与批量处理支持。",
   "changelogUrl": "https://github.com/zhuozhi233/LyumaShader-Extended/releases",
