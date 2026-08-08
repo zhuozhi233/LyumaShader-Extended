@@ -5,7 +5,7 @@ using System;
 
 namespace LyumaShader {
     public class Waifu2dGenerator : ScriptableObject {
-        internal const int GeneratorRevision = 2;
+        internal const int GeneratorRevision = 3;
         // Use a #include instead of pasting in code.
         const bool USE_INCLUDE = false;
         const string GENERATED_POIYOMI_FOLDER = "Assets/LyumaShader/Waifu2d/Generated/Poiyomi";

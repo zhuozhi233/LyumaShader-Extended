@@ -145,10 +145,11 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
 
     if(waifu_coef > 1.0e-6)
     {
+        bool isPerspective = lilIsPerspective();
         float safeNearDepth = max(
             0.005,
             max(0.00001, _ProjectionParams.y) * 1.05);
-        bool applyWaifuDepthCorrection = !lilIsPerspective()
+        bool applyWaifuDepthCorrection = !isPerspective
             || stablePositionVS.z <= -safeNearDepth;
 
         if(applyWaifuDepthCorrection)
@@ -177,18 +178,30 @@ lilVertexPositionInputs LyumaWaifu2dReGetVertexPositionInputs(lilVertexPositionI
                 // at that position.
                 float originalBiasedNDC = originalUnbiasedNDC
                     + originalBiasNDC * outlineBiasSafeFactor;
-                float correctedBiasedNDC = lerp(
-                    originalBiasedNDC,
-                    reprojectedBiasedNDC,
-                    _zcorrect_coef);
+                // Orthographic projection does not use depth to determine a
+                // vertex's screen position. Preserve the original layered
+                // depth there to avoid collapsing the outline and base passes
+                // onto one plane. Perspective cameras keep the existing
+                // flattened-depth correction.
+                float correctedBiasedNDC = isPerspective
+                    ? lerp(
+                        originalBiasedNDC,
+                        reprojectedBiasedNDC,
+                        _zcorrect_coef)
+                    : originalBiasedNDC;
                 vertexInput.positionCS.z =
                     correctedBiasedNDC * vertexInput.positionCS.w;
             #else
-                float correctedZ = sign(depthReferenceData.w * depthReferenceData.z * vertexInput.positionCS.w)
-                    * max(0.00001, abs(depthReferenceData.z))
-                    * max(0.00001, abs(vertexInput.positionCS.w))
-                    / max(0.00001, abs(depthReferenceData.w));
-                vertexInput.positionCS.z = lerp(correctedZ, vertexInput.positionCS.z, _zcorrect_coef);
+                float originalDepthNDC =
+                    depthReferenceData.z / nonzeroify(depthReferenceData.w);
+                float originalDepthCS =
+                    originalDepthNDC * vertexInput.positionCS.w;
+                vertexInput.positionCS.z = isPerspective
+                    ? lerp(
+                        originalDepthCS,
+                        vertexInput.positionCS.z,
+                        _zcorrect_coef)
+                    : originalDepthCS;
             #endif
         }
 

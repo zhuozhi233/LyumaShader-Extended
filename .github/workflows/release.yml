@@ -50,17 +50,9 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           generate_release_notes: false
           body: |
-            VPM/VCC 软件包。
+            ### 修复
 
-            > [!IMPORTANT]
-            > 从 1.x 升级时，直接安装最新版 2.x，再通过 `Tools > LyumaShader Extended > 从 1.x 升级到 2.x` 迁移旧模型。升级前不要求执行一键还原或删除旧版生成资源。
-
-            - 新增多个自定义游戏菜单项，可分别设置名称、图标、安装位置、参数和默认、保存、同步状态
-            - 每个菜单项可独立设置 2D 强度、朝向、锁定轴、Z 深度修正、剖面跟随相机和 2D 轮廓
-            - 游戏菜单使用嵌套优先级 BlendTree；多个菜单同时开启时，列表中靠后的菜单项覆盖靠前项目
-            - 自定义菜单仅控制使用全局 2D 参数的项目，逐材质独立参数保持各自设置
-            - 修复 lilToon Fur 在 2D 状态下毛发厚度不一致和穿插的问题
-            - ZIP 根目录包含 package.json，可直接通过 VCC 安装
+            - 修复 Unity Scene 视图使用 Iso（正交投影）时，2D 模型因深度重叠出现条纹和闪烁的问题
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
             package.json

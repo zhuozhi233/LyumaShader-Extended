@@ -161,7 +161,18 @@ float4 waifu_projectVertex2(float4 vertexWorldPos, float4 origPos) {
     // compatibility with generated shaders, but is deliberately not projected.
     float4 newViewPos = waifu_computeVertexViewPos(origPos);
     float4 newPos = mul(UNITY_MATRIX_P, newViewPos);
-    newPos.z = lerp(sign(oPos.w * oPos.z * newPos.w) * max(0.00001, abs(oPos.z)) * max(0.00001, abs(newPos.w)) / max(0.00001, abs(oPos.w)), newPos.z, _zcorrect_coef);
+    float originalDepthNDC = oPos.z / nonzeroify(oPos.w);
+    if (unity_OrthoParams.w > 0.5) {
+        // Flattening along an orthographic camera's view direction cannot
+        // change screen-space X/Y. Keep the original mesh depth so layered
+        // surfaces do not collapse onto one plane and start z-fighting.
+        newPos.z = originalDepthNDC * newPos.w;
+    } else {
+        newPos.z = lerp(
+            originalDepthNDC * newPos.w,
+            newPos.z,
+            _zcorrect_coef);
+    }
     return newPos;
     // END CRAZY PER VERTEX
 }
