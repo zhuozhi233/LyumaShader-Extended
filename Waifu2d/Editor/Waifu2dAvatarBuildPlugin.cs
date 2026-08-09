@@ -1402,10 +1402,13 @@ namespace LyumaShader
                     renderer.bones = new[] { renderer.transform };
                     context.AssetSaver.SaveAsset(mesh);
                 }
-                renderer.localBounds = TransformBounds(
-                    renderer.localBounds,
-                    hips.worldToLocalMatrix * previousRoot.localToWorldMatrix
-                );
+                Bounds previousBounds = renderer.localBounds;
+                renderer.localBounds = previousBounds.size == Vector3.zero
+                    ? default(Bounds)
+                    : TransformBounds(
+                        previousBounds,
+                        hips.worldToLocalMatrix * previousRoot.localToWorldMatrix
+                    );
                 renderer.rootBone = hips;
             }
 

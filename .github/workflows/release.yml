@@ -52,7 +52,7 @@ jobs:
           body: |
             ### 修复
 
-            - 修复 Unity Scene 视图使用 Iso（正交投影）时，2D 模型因深度重叠出现条纹和闪烁的问题
+            - 修复启用 Root Bone 修复时与 AAO Merge Skinned Mesh 冲突，导致合并网格 Bounds 变为零并被错误裁剪的问题
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
             package.json
