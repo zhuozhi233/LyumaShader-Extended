@@ -25,6 +25,8 @@ namespace LyumaShader
         private const string ToggleIconPath =
             "Packages/com.zhuozhi.lyumashader-extended/Waifu2d/Resources/Waifu2dTransparent.png";
         private const string CustomLogicProperty = "_lyuma_custom_logic_2d";
+        private const string StableRootBoneName =
+            "__LyumaShader_StableRootBone";
 
         public override string QualifiedName =>
             "com.zhuozhi.lyumashader-extended.waifu2d-avatar";
@@ -60,9 +62,25 @@ namespace LyumaShader
             foreach(ConfigurationSnapshot configuration in state.Configurations)
             {
                 Transform hips = FindHips(context.AvatarRootObject);
-                if(configuration.RepairRootBones && hips != null)
+                Transform repairedRootBone = null;
+                if(configuration.RepairRootBones)
                 {
-                    RepairRootBones(context, configuration.Root, hips, state);
+                    repairedRootBone = configuration.RootBoneMode ==
+                        LyumaWaifu2dAvatarConfig.RootBoneRepairMode.StableAnchor
+                            ? GetOrCreateStableRootBone(
+                                context.AvatarRootObject,
+                                state
+                            )
+                            : hips;
+                    if(repairedRootBone != null)
+                    {
+                        RepairRootBones(
+                            context,
+                            configuration.Root,
+                            repairedRootBone,
+                            state
+                        );
+                    }
                 }
 
                 if(configuration.ConvertStaticMeshes)
@@ -71,7 +89,7 @@ namespace LyumaShader
                         context,
                         configuration,
                         state,
-                        hips,
+                        repairedRootBone != null ? repairedRootBone : hips,
                         animatorServices.AnimationIndex,
                         context.AvatarRootObject
                     );
@@ -1365,21 +1383,49 @@ namespace LyumaShader
             return animator.GetBoneTransform(HumanBodyBones.Hips);
         }
 
-        private static void RepairRootBones(
-            BuildContext context,
-            GameObject root,
-            Transform hips,
+        private static Transform GetOrCreateStableRootBone(
+            GameObject avatarRoot,
             BuildState state
         )
         {
-            if(context == null || root == null || hips == null) return;
+            if(avatarRoot == null || state == null) return null;
+            if(state.StableRootBone != null) return state.StableRootBone;
+
+            string name = StableRootBoneName;
+            int suffix = 2;
+            while(avatarRoot.transform.Find(name) != null)
+            {
+                name = StableRootBoneName + "_" + suffix++;
+            }
+
+            var anchor = new GameObject(name);
+            anchor.transform.SetParent(avatarRoot.transform, false);
+            anchor.transform.localPosition = Vector3.zero;
+            anchor.transform.localRotation = Quaternion.identity;
+            anchor.transform.localScale = Vector3.one;
+            state.StableRootBone = anchor.transform;
+            return state.StableRootBone;
+        }
+
+        private static void RepairRootBones(
+            BuildContext context,
+            GameObject root,
+            Transform targetRootBone,
+            BuildState state
+        )
+        {
+            if(context == null || root == null || targetRootBone == null) return;
+            var previousRendererRoots =
+                new Dictionary<Renderer, Transform>();
             foreach(SkinnedMeshRenderer renderer in
                 root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
-                if(renderer == null || renderer.rootBone == hips) continue;
+                if(renderer == null) continue;
                 Transform previousRoot = renderer.rootBone != null
                     ? renderer.rootBone
                     : renderer.transform;
+                previousRendererRoots[renderer] = previousRoot;
+                if(renderer.rootBone == targetRootBone) continue;
                 if(renderer.rootBone == null &&
                     !HasUsableBones(renderer) &&
                     renderer.sharedMesh != null)
@@ -1407,42 +1453,78 @@ namespace LyumaShader
                     ? default(Bounds)
                     : TransformBounds(
                         previousBounds,
-                        hips.worldToLocalMatrix * previousRoot.localToWorldMatrix
+                        targetRootBone.worldToLocalMatrix *
+                            previousRoot.localToWorldMatrix
                     );
-                renderer.rootBone = hips;
+                renderer.rootBone = targetRootBone;
             }
 
             foreach(ModularAvatarMeshSettings settings in
                 root.GetComponentsInChildren<ModularAvatarMeshSettings>(true))
             {
                 if(settings == null) continue;
-                GameObject previous = settings.RootBone != null
+                Renderer settingsRenderer = settings.GetComponent<Renderer>();
+                GameObject previousObject = settings.RootBone != null
                     ? settings.RootBone.Get(settings)
                     : null;
-                Renderer settingsRenderer = settings.GetComponent<Renderer>();
+                Transform previousRoot = previousObject != null
+                    ? previousObject.transform
+                    : ResolvePreviousSettingsRoot(
+                        settings,
+                        settingsRenderer,
+                        previousRendererRoots
+                    );
                 if(state != null &&
-                    previous != null &&
+                    previousRoot != null &&
                     IsMotchiriRenderer(settingsRenderer))
                 {
                     state.MotchiriContactAnchors[settingsRenderer] =
-                        previous.transform;
+                        previousRoot;
                 }
-                if(previous != null &&
-                    previous.transform != hips &&
+                if(previousRoot != null &&
+                    previousRoot != targetRootBone &&
                     settings.InheritBounds !=
                         ModularAvatarMeshSettings.InheritMode.Inherit)
                 {
-                    settings.Bounds = TransformBounds(
-                        settings.Bounds,
-                        hips.worldToLocalMatrix *
-                            previous.transform.localToWorldMatrix
-                    );
+                    Bounds previousBounds = settings.Bounds;
+                    settings.Bounds = previousBounds.size == Vector3.zero
+                        ? default(Bounds)
+                        : TransformBounds(
+                            previousBounds,
+                            targetRootBone.worldToLocalMatrix *
+                                previousRoot.localToWorldMatrix
+                        );
                 }
 
                 var reference = new AvatarObjectReference();
-                reference.Set(hips.gameObject);
+                reference.Set(targetRootBone.gameObject);
                 settings.RootBone = reference;
             }
+        }
+
+        private static Transform ResolvePreviousSettingsRoot(
+            ModularAvatarMeshSettings settings,
+            Renderer renderer,
+            Dictionary<Renderer, Transform> previousRendererRoots
+        )
+        {
+            if(renderer != null)
+            {
+                Transform previousRoot;
+                if(previousRendererRoots != null &&
+                    previousRendererRoots.TryGetValue(renderer, out previousRoot) &&
+                    previousRoot != null)
+                {
+                    return previousRoot;
+                }
+
+                var skinned = renderer as SkinnedMeshRenderer;
+                if(skinned != null && skinned.rootBone != null)
+                    return skinned.rootBone;
+                return renderer.transform;
+            }
+
+            return settings != null ? settings.transform : null;
         }
 
         private static bool HasUsableBones(SkinnedMeshRenderer renderer)
@@ -1490,6 +1572,7 @@ namespace LyumaShader
             internal readonly Dictionary<Renderer, Transform>
                 MotchiriContactAnchors =
                     new Dictionary<Renderer, Transform>();
+            internal Transform StableRootBone;
             private readonly HashSet<Material> materialsUsedByNonParticles =
                 new HashSet<Material>();
 
@@ -1637,6 +1720,8 @@ namespace LyumaShader
                 new List<MenuItemSnapshot>();
             internal readonly bool PreviewIn2D;
             internal readonly bool RepairRootBones;
+            internal readonly LyumaWaifu2dAvatarConfig.RootBoneRepairMode
+                RootBoneMode;
             internal readonly bool ConvertStaticMeshes;
             internal readonly bool ProtectParticleMaterials;
 
@@ -1654,6 +1739,7 @@ namespace LyumaShader
                 OutlineIn2D = !component.DisableOutlineIn2D;
                 PreviewIn2D = component.PreviewIn2D;
                 RepairRootBones = component.RepairRootBones;
+                RootBoneMode = component.RootBoneMode;
                 ConvertStaticMeshes = component.ConvertStaticMeshes;
                 ProtectParticleMaterials =
                     component.ProtectParticleMaterials;

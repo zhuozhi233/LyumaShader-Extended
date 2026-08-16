@@ -41,6 +41,11 @@ namespace LyumaShader
             "2D 参数",
             "构建设置"
         };
+        private static readonly string[] RootBoneRepairModeNames =
+        {
+            "Hips",
+            "稳定锚点"
+        };
 
         [SerializeField] private GameObject modelRoot;
         [SerializeField] private DefaultAsset animationOutputFolder;
@@ -1259,13 +1264,40 @@ namespace LyumaShader
             bool newRepairRootBones = EditorGUILayout.ToggleLeft(
                 new GUIContent(
                     "修复蒙皮网格 Root Bone",
-                    "在构建副本中将 SkinnedMeshRenderer 与全部 MA Mesh Settings 的 Root Bone 统一到 Hips。"
+                    "在构建副本中将 SkinnedMeshRenderer 与全部 MA Mesh Settings 的 Root Bone 统一到所选目标。"
                 ),
                 repairRootBones
             );
             if(EditorGUI.EndChangeCheck())
             {
                 SetRootBoneBuildRepair(newRepairRootBones);
+                configuration = GetConfiguration(false);
+            }
+
+            if(newRepairRootBones)
+            {
+                LyumaWaifu2dAvatarConfig.RootBoneRepairMode rootBoneMode =
+                    configuration != null
+                        ? configuration.RootBoneMode
+                        : LyumaWaifu2dAvatarConfig.RootBoneRepairMode.StableAnchor;
+                EditorGUI.indentLevel++;
+                EditorGUI.BeginChangeCheck();
+                int newRootBoneMode = EditorGUILayout.Popup(
+                    new GUIContent(
+                        "修复模式",
+                        "Hips：沿用原来的统一 Hips 方式。稳定锚点：在 NDMF 构建副本的 Avatar 根目录下创建不跟随骨骼动画的统一 Root Bone。"
+                    ),
+                    (int)rootBoneMode,
+                    RootBoneRepairModeNames
+                );
+                if(EditorGUI.EndChangeCheck())
+                {
+                    SetRootBoneBuildRepairMode(
+                        (LyumaWaifu2dAvatarConfig.RootBoneRepairMode)
+                            newRootBoneMode
+                    );
+                }
+                EditorGUI.indentLevel--;
             }
 
             EditorGUILayout.Space(3.0f);
@@ -3622,6 +3654,23 @@ namespace LyumaShader
                 enabled
                     ? "已启用 NDMF Root Bone 修复；只会修改构建副本。"
                     : "已停用 NDMF Root Bone 修复。",
+                MessageType.Info
+            );
+        }
+
+        private void SetRootBoneBuildRepairMode(
+            LyumaWaifu2dAvatarConfig.RootBoneRepairMode mode
+        )
+        {
+            LyumaWaifu2dAvatarConfig configuration = GetConfiguration(true);
+            if(configuration == null) return;
+            RecordConfiguration(configuration, "修改 Waifu2d Root Bone 修复模式");
+            configuration.RootBoneMode = mode;
+            SaveConfiguration(configuration);
+            SetStatus(
+                mode == LyumaWaifu2dAvatarConfig.RootBoneRepairMode.StableAnchor
+                    ? "Root Bone 修复将使用构建副本中的稳定锚点。"
+                    : "Root Bone 修复将沿用 Humanoid Hips。",
                 MessageType.Info
             );
         }

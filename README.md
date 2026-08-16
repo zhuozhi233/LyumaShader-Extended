@@ -14,7 +14,8 @@
 - 每个菜单项可独立设置 2D 强度、朝向、锁定轴、Z 深度修正、剖面跟随相机和 2D 轮廓。构建时生成嵌套 BlendTree，多个菜单同时开启时由列表中更靠后的菜单项完整覆盖靠前项目，避免参数叠加和状态残留。
 - 材质规则中设为独立的参数保持材质自己的值，仍使用全局设置的其他参数继续受游戏菜单控制。
 - lilToon Fur 会在压平后同步修正毛发扩展方向，减少 2D 状态下厚度不一致和穿插。
-- 构建时修复 Root Bone，并把普通 `MeshRenderer + MeshFilter` 临时转换为单骨骼 `SkinnedMeshRenderer`。
+- 构建时可将 Root Bone 统一到 Hips，或使用默认的“稳定锚点”模式在 Avatar 根目录创建不受骨骼动画影响的统一 Root Bone；同时正确换算网格与 MA Mesh Settings 的 Bounds。
+- 可把普通 `MeshRenderer + MeshFilter` 临时转换为单骨骼 `SkinnedMeshRenderer`。
 - 默认保护 `ParticleSystemRenderer`：粒子独占材质跳过 Waifu2d；与普通网格共享材质时，为粒子生成独立的非 2D 构建副本并从开关动画中排除。
 - 官方 lilToon 转换材质会复用 AAO 的着色器信息，使 AAO 能继续执行纹理内存优化；未安装 AAO 时不会增加额外依赖。
 - 支持材质名称和 Shader 名称搜索；大量材质会分页显示。

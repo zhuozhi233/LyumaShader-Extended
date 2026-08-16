@@ -105,7 +105,7 @@ namespace LyumaShader
 
         internal static SkinnedMeshRenderer Convert(
             MeshRenderer source,
-            Transform hips,
+            Transform targetRootBone,
             bool persistentMesh,
             bool useUndo,
             AnimationIndex animationIndex = null,
@@ -162,7 +162,10 @@ namespace LyumaShader
                 : go.AddComponent<SkinnedMeshRenderer>();
             target.sharedMesh = mesh;
             target.bones = new[] { go.transform };
-            target.rootBone = hips != null ? hips : go.transform;
+            Transform rootBone = targetRootBone != null
+                ? targetRootBone
+                : go.transform;
+            target.rootBone = rootBone;
             target.sharedMaterials = sharedMaterials;
             target.enabled = rendererEnabled;
             target.shadowCastingMode = shadowCastingMode;
@@ -178,7 +181,12 @@ namespace LyumaShader
             target.lightmapScaleOffset = lightmapScaleOffset;
             target.realtimeLightmapIndex = realtimeLightmapIndex;
             target.realtimeLightmapScaleOffset = realtimeLightmapScaleOffset;
-            target.localBounds = mesh.bounds;
+            target.localBounds = mesh.bounds.size == Vector3.zero
+                ? default(Bounds)
+                : TransformBounds(
+                    mesh.bounds,
+                    rootBone.worldToLocalMatrix * go.transform.localToWorldMatrix
+                );
 
             ObjectRegistry.TryRegisterReplacedObject(sourceReference, target);
             if(animationIndex != null && animationPath != null)
@@ -202,6 +210,30 @@ namespace LyumaShader
                 if(filter != null) Object.DestroyImmediate(filter);
             }
             return target;
+        }
+
+        private static Bounds TransformBounds(
+            Bounds source,
+            Matrix4x4 transform
+        )
+        {
+            Vector3 center = transform.MultiplyPoint3x4(source.center);
+            Vector3 extents = source.extents;
+            Vector3 axisX = transform.MultiplyVector(
+                new Vector3(extents.x, 0.0f, 0.0f)
+            );
+            Vector3 axisY = transform.MultiplyVector(
+                new Vector3(0.0f, extents.y, 0.0f)
+            );
+            Vector3 axisZ = transform.MultiplyVector(
+                new Vector3(0.0f, 0.0f, extents.z)
+            );
+            Vector3 convertedExtents = new Vector3(
+                Mathf.Abs(axisX.x) + Mathf.Abs(axisY.x) + Mathf.Abs(axisZ.x),
+                Mathf.Abs(axisX.y) + Mathf.Abs(axisY.y) + Mathf.Abs(axisZ.y),
+                Mathf.Abs(axisX.z) + Mathf.Abs(axisY.z) + Mathf.Abs(axisZ.z)
+            );
+            return new Bounds(center, convertedExtents * 2.0f);
         }
 
         private static void RewriteRendererBindings(

@@ -50,9 +50,14 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           generate_release_notes: false
           body: |
+            ### 新增
+
+            - Root Bone 修复新增“稳定锚点”模式，并设为默认选项；构建时在 Avatar 根目录创建不受骨骼动画影响的统一 Root Bone
+            - 保留原有 Hips 修复模式，可在构建设置中自由切换
+
             ### 修复
 
-            - 修复启用 Root Bone 修复时与 AAO Merge Skinned Mesh 冲突，导致合并网格 Bounds 变为零并被错误裁剪的问题
+            - 修复更换 Root Bone 后 Bounds 空间不一致的问题，同步处理蒙皮网格、普通网格转换结果及全部 MA Mesh Settings
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
             package.json

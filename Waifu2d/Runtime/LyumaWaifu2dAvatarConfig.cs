@@ -13,6 +13,12 @@ namespace LyumaShader
     [DisallowMultipleComponent]
     public sealed class LyumaWaifu2dAvatarConfig : MonoBehaviour, INDMFEditorOnly
     {
+        public enum RootBoneRepairMode
+        {
+            Hips = 0,
+            StableAnchor = 1
+        }
+
         [Serializable]
         public sealed class MaterialRule
         {
@@ -121,6 +127,7 @@ namespace LyumaShader
         public bool ToggleSynced = true;
         public bool PreviewIn2D;
         public bool RepairRootBones = true;
+        public RootBoneRepairMode RootBoneMode = RootBoneRepairMode.StableAnchor;
         public bool ConvertStaticMeshes = true;
         public bool ProtectParticleMaterials = true;
 
