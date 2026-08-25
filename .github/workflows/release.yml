@@ -50,10 +50,11 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           generate_release_notes: false
           body: |
-            ### 改进
+            VPM/VCC 软件包。
 
             - 稳定锚点支持指定父对象；未指定时显示并使用当前模型 Root
             - 2D 参数改为自动读取当前模型配置并在修改后立即保存，不再需要手动写入或重新读取
+            - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
             package.json
