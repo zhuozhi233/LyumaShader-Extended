@@ -128,6 +128,7 @@ namespace LyumaShader
         public bool PreviewIn2D;
         public bool RepairRootBones = true;
         public RootBoneRepairMode RootBoneMode = RootBoneRepairMode.StableAnchor;
+        public GameObject StableRootBoneParent;
         public bool ConvertStaticMeshes = true;
         public bool ProtectParticleMaterials = true;
 

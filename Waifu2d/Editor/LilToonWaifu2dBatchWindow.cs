@@ -1292,10 +1292,36 @@ namespace LyumaShader
                 );
                 if(EditorGUI.EndChangeCheck())
                 {
-                    SetRootBoneBuildRepairMode(
+                    rootBoneMode =
                         (LyumaWaifu2dAvatarConfig.RootBoneRepairMode)
-                            newRootBoneMode
+                            newRootBoneMode;
+                    SetRootBoneBuildRepairMode(
+                        rootBoneMode
                     );
+                    configuration = GetConfiguration(false);
+                }
+
+                if(rootBoneMode ==
+                    LyumaWaifu2dAvatarConfig.RootBoneRepairMode.StableAnchor)
+                {
+                    EditorGUI.BeginChangeCheck();
+                    GameObject newStableRootBoneParent =
+                        (GameObject)EditorGUILayout.ObjectField(
+                            new GUIContent(
+                                "锚点父对象",
+                                "构建时会在此对象的子级创建稳定锚点。未指定或对象不属于当前 Avatar 时，显示并使用当前模型 Root。"
+                            ),
+                            configuration != null &&
+                                configuration.StableRootBoneParent != null
+                                    ? configuration.StableRootBoneParent
+                                    : modelRoot,
+                            typeof(GameObject),
+                            true
+                        );
+                    if(EditorGUI.EndChangeCheck())
+                    {
+                        SetStableRootBoneParent(newStableRootBoneParent);
+                    }
                 }
                 EditorGUI.indentLevel--;
             }
@@ -3104,12 +3130,21 @@ namespace LyumaShader
 
         private void DrawGeneralParametersSection()
         {
+            if(GetConfiguration(false) != null)
+            {
+                LoadWindowParametersFromConfiguration();
+            }
             EditorGUILayout.LabelField(
                 "默认参数会用于没有启用“单独设置 2D 参数”的材质。",
                 EditorStyles.wordWrappedMiniLabel
             );
+            EditorGUILayout.LabelField(
+                "修改后会自动保存到当前模型配置。",
+                EditorStyles.wordWrappedMiniLabel
+            );
             EditorGUILayout.Space(3.0f);
 
+            EditorGUI.BeginChangeCheck();
             DrawOptionalSlider(
                 ref applyTwoDimensionalness,
                 ref twoDimensionalness,
@@ -3152,18 +3187,10 @@ namespace LyumaShader
                 ),
                 outlineIn2D
             );
-
-            EditorGUILayout.BeginHorizontal();
-            if(GUILayout.Button("写入当前模型配置", GUILayout.Height(27.0f)))
+            if(EditorGUI.EndChangeCheck())
             {
-                ApplyParametersToConfiguration("已扫描材质");
+                ApplyParametersToConfiguration("2D 参数");
             }
-            if(GUILayout.Button("从模型配置重新读取", GUILayout.Height(27.0f)))
-            {
-                LoadWindowParametersFromConfiguration();
-                SetStatus("已从当前模型的 NDMF 配置读取参数。", MessageType.Info);
-            }
-            EditorGUILayout.EndHorizontal();
         }
 
         private void DrawAnimationSection()
@@ -3671,6 +3698,21 @@ namespace LyumaShader
                 mode == LyumaWaifu2dAvatarConfig.RootBoneRepairMode.StableAnchor
                     ? "Root Bone 修复将使用构建副本中的稳定锚点。"
                     : "Root Bone 修复将沿用 Humanoid Hips。",
+                MessageType.Info
+            );
+        }
+
+        private void SetStableRootBoneParent(GameObject parent)
+        {
+            LyumaWaifu2dAvatarConfig configuration = GetConfiguration(true);
+            if(configuration == null) return;
+            RecordConfiguration(configuration, "修改 Waifu2d 稳定锚点父对象");
+            configuration.StableRootBoneParent = parent;
+            SaveConfiguration(configuration);
+            SetStatus(
+                parent != null
+                    ? "稳定锚点将在所选对象的子级创建。"
+                    : "稳定锚点将在 Avatar Root 下创建。",
                 MessageType.Info
             );
         }

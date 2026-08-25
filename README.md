@@ -14,7 +14,7 @@
 - 每个菜单项可独立设置 2D 强度、朝向、锁定轴、Z 深度修正、剖面跟随相机和 2D 轮廓。构建时生成嵌套 BlendTree，多个菜单同时开启时由列表中更靠后的菜单项完整覆盖靠前项目，避免参数叠加和状态残留。
 - 材质规则中设为独立的参数保持材质自己的值，仍使用全局设置的其他参数继续受游戏菜单控制。
 - lilToon Fur 会在压平后同步修正毛发扩展方向，减少 2D 状态下厚度不一致和穿插。
-- 构建时可将 Root Bone 统一到 Hips，或使用默认的“稳定锚点”模式在 Avatar 根目录创建不受骨骼动画影响的统一 Root Bone；同时正确换算网格与 MA Mesh Settings 的 Bounds。
+- 构建时可将 Root Bone 统一到 Hips，或使用默认的“稳定锚点”模式创建统一 Root Bone；稳定锚点可指定父对象，未指定时使用模型 Root，同时正确换算网格与 MA Mesh Settings 的 Bounds。
 - 可把普通 `MeshRenderer + MeshFilter` 临时转换为单骨骼 `SkinnedMeshRenderer`。
 - 默认保护 `ParticleSystemRenderer`：粒子独占材质跳过 Waifu2d；与普通网格共享材质时，为粒子生成独立的非 2D 构建副本并从开关动画中排除。
 - 官方 lilToon 转换材质会复用 AAO 的着色器信息，使 AAO 能继续执行纹理内存优化；未安装 AAO 时不会增加额外依赖。
@@ -53,6 +53,8 @@
 `Tools > LyumaShader Extended > Waifu2d 配置工具`
 
 选择模型后点击“一键配置”。工具会扫描全部关联材质，并在模型 Root 上保存 NDMF 配置。材质规则、2D 参数、自定义游戏菜单项和构建修复均可在窗口中继续调整。每个菜单项的位置可以留空以安装到根菜单，也可以指定模型内的 MA 子菜单、Menu Group 或 Menu Installer。
+
+“2D 参数”页会自动读取当前模型配置，参数修改后立即保存，不需要手动写入或重新读取。
 
 模型上的 `Lyuma Waifu2d Avatar Config` 组件只保存配置；点击组件中的按钮可以重新打开窗口。
 

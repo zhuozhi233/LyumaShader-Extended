@@ -50,14 +50,10 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           generate_release_notes: false
           body: |
-            ### 新增
+            ### 改进
 
-            - Root Bone 修复新增“稳定锚点”模式，并设为默认选项；构建时在 Avatar 根目录创建不受骨骼动画影响的统一 Root Bone
-            - 保留原有 Hips 修复模式，可在构建设置中自由切换
-
-            ### 修复
-
-            - 修复更换 Root Bone 后 Bounds 空间不一致的问题，同步处理蒙皮网格、普通网格转换结果及全部 MA Mesh Settings
+            - 稳定锚点支持指定父对象；未指定时显示并使用当前模型 Root
+            - 2D 参数改为自动读取当前模型配置并在修改后立即保存，不再需要手动写入或重新读取
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
             package.json

@@ -69,6 +69,7 @@ namespace LyumaShader
                         LyumaWaifu2dAvatarConfig.RootBoneRepairMode.StableAnchor
                             ? GetOrCreateStableRootBone(
                                 context.AvatarRootObject,
+                                configuration.StableRootBoneParent,
                                 state
                             )
                             : hips;
@@ -1385,26 +1386,38 @@ namespace LyumaShader
 
         private static Transform GetOrCreateStableRootBone(
             GameObject avatarRoot,
+            Transform configuredParent,
             BuildState state
         )
         {
             if(avatarRoot == null || state == null) return null;
-            if(state.StableRootBone != null) return state.StableRootBone;
+            Transform avatarRootTransform = avatarRoot.transform;
+            Transform parent = configuredParent != null &&
+                (configuredParent == avatarRootTransform ||
+                    configuredParent.IsChildOf(avatarRootTransform))
+                    ? configuredParent
+                    : avatarRootTransform;
+            Transform stableRootBone;
+            if(state.StableRootBones.TryGetValue(parent, out stableRootBone) &&
+                stableRootBone != null)
+            {
+                return stableRootBone;
+            }
 
             string name = StableRootBoneName;
             int suffix = 2;
-            while(avatarRoot.transform.Find(name) != null)
+            while(parent.Find(name) != null)
             {
                 name = StableRootBoneName + "_" + suffix++;
             }
 
             var anchor = new GameObject(name);
-            anchor.transform.SetParent(avatarRoot.transform, false);
+            anchor.transform.SetParent(parent, false);
             anchor.transform.localPosition = Vector3.zero;
             anchor.transform.localRotation = Quaternion.identity;
             anchor.transform.localScale = Vector3.one;
-            state.StableRootBone = anchor.transform;
-            return state.StableRootBone;
+            state.StableRootBones[parent] = anchor.transform;
+            return anchor.transform;
         }
 
         private static void RepairRootBones(
@@ -1572,7 +1585,8 @@ namespace LyumaShader
             internal readonly Dictionary<Renderer, Transform>
                 MotchiriContactAnchors =
                     new Dictionary<Renderer, Transform>();
-            internal Transform StableRootBone;
+            internal readonly Dictionary<Transform, Transform> StableRootBones =
+                new Dictionary<Transform, Transform>();
             private readonly HashSet<Material> materialsUsedByNonParticles =
                 new HashSet<Material>();
 
@@ -1722,6 +1736,7 @@ namespace LyumaShader
             internal readonly bool RepairRootBones;
             internal readonly LyumaWaifu2dAvatarConfig.RootBoneRepairMode
                 RootBoneMode;
+            internal readonly Transform StableRootBoneParent;
             internal readonly bool ConvertStaticMeshes;
             internal readonly bool ProtectParticleMaterials;
 
@@ -1740,6 +1755,9 @@ namespace LyumaShader
                 PreviewIn2D = component.PreviewIn2D;
                 RepairRootBones = component.RepairRootBones;
                 RootBoneMode = component.RootBoneMode;
+                StableRootBoneParent = component.StableRootBoneParent != null
+                    ? component.StableRootBoneParent.transform
+                    : null;
                 ConvertStaticMeshes = component.ConvertStaticMeshes;
                 ProtectParticleMaterials =
                     component.ProtectParticleMaterials;
