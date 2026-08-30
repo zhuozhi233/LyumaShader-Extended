@@ -18,6 +18,7 @@
 - 可把普通 `MeshRenderer + MeshFilter` 临时转换为单骨骼 `SkinnedMeshRenderer`。
 - 默认保护 `ParticleSystemRenderer`：粒子独占材质跳过 Waifu2d；与普通网格共享材质时，为粒子生成独立的非 2D 构建副本并从开关动画中排除。
 - 官方 lilToon 转换材质会复用 AAO 的着色器信息，使 AAO 能继续执行纹理内存优化；未安装 AAO 时不会增加额外依赖。
+- 已适配 `com.zhuozhi.liltoon-distance-visibility`；距离显示材质会自动参与 NDMF 转换并保留原有距离控制。
 - 支持材质名称和 Shader 名称搜索；大量材质会分页显示。
 - 提供一键 1.x → 2.x 迁移，保留逐材质参数、Root Bone 和普通网格修复状态。
 
@@ -73,7 +74,7 @@
 
 ## 第三方变体着色器
 
-工具默认只启用官方 lilToon 和 Poiyomi。`lilToon Custom Shader`、Motchiri 以及其他第三方变体需要用户明确确认后才能启用。
+工具默认启用官方 lilToon、Poiyomi 和已适配的 lilToon 距离显示。其他 `lilToon Custom Shader`、Motchiri 以及第三方变体需要用户明确确认后才能启用。
 
 第三方变体的顶点逻辑和 Shader 结构可能与官方版本不同，即使能够生成组合 Shader，也不保证原功能和 2D 效果完全兼容。出现编译错误、原效果失效或渲染异常时，请停用对应材质规则。
 

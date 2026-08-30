@@ -359,7 +359,9 @@ namespace LyumaShader
 
             if(GenericLilCustomWaifu2dAdapter.IsSupported(source))
             {
-                return rule.MergeCustomShader
+                return rule.MergeCustomShader ||
+                    GenericLilCustomWaifu2dAdapter.
+                        IsDistanceVisibilityShader(source)
                     ? GenericLilCustomWaifu2dAdapter.GetWaifu2dShader(source)
                     : null;
             }

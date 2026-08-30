@@ -2,6 +2,7 @@
 using UnityEditor;
 using System.IO;
 using System;
+using System.Reflection;
 
 namespace LyumaShader {
     public class Waifu2dGenerator : ScriptableObject {
@@ -15,10 +16,8 @@ namespace LyumaShader {
 
         //[MenuItem ("Tools/Lyuma Waifu2d")]
         //MenuItem("GameObject/Create Mesh")
-        [MenuItem ("CONTEXT/Material/转换为 2D（Lyuma Waifu2d）")]
-        static void Waifu2dMaterial (MenuCommand command)
+        internal static void ConvertMaterial (Material m)
         {
-            Material m = command.context as Material;
             if (m == null || m.shader == null) {
                 return;
             }
@@ -71,10 +70,8 @@ namespace LyumaShader {
             }
         }
 
-        [MenuItem ("CONTEXT/Material/恢复为 3D（Lyuma Waifu2d）")]
-        static void WaifuRevert2dMaterial (MenuCommand command)
+        internal static void RevertMaterial (Material m)
         {
-            Material m = command.context as Material;
             if (m == null || m.shader == null) {
                 return;
             }
@@ -142,6 +139,36 @@ namespace LyumaShader {
                     }
                     break;
                 }
+            }
+        }
+
+        internal static bool IsWaifu2dMaterialShader (Shader shader)
+        {
+            if (shader == null) return false;
+            if (LilToonWaifu2dAdapter.IsWaifu2dShader (shader) ||
+                GenericLilCustomWaifu2dAdapter.IsWaifu2dShader (shader) ||
+                PoiyomiWaifu2dAdapter.IsWaifu2dShader (shader))
+            {
+                return true;
+            }
+
+            string path = AssetDatabase.GetAssetPath (shader);
+            if (string.IsNullOrEmpty (path) ||
+                !path.EndsWith (".shader", StringComparison.OrdinalIgnoreCase) ||
+                !File.Exists (path))
+            {
+                return false;
+            }
+
+            try
+            {
+                return File.ReadAllText (path).IndexOf (
+                    "Waifu2d Generated",
+                    StringComparison.Ordinal) >= 0;
+            }
+            catch (IOException)
+            {
+                return false;
             }
         }
 
@@ -651,5 +678,49 @@ namespace LyumaShader {
             }
             return fileName;
         }
+    }
+
+    internal static class Waifu2dMaterialContextMenus
+    {
+        private const string ConvertMenu =
+            "CONTEXT/Material/转换为 2D（Lyuma Waifu2d）";
+        private const string RevertMenu =
+            "CONTEXT/Material/恢复为 3D（Lyuma Waifu2d）";
+        [MenuItem(ConvertMenu, false, 2000)]
+        private static void ConvertSelected(MenuCommand command)
+        {
+            Material material = GetContextMaterial(command);
+            Waifu2dGenerator.ConvertMaterial(material);
+        }
+
+        [MenuItem(ConvertMenu, true)]
+        private static bool CanConvertSelected(MenuCommand command)
+        {
+            Material material = GetContextMaterial(command);
+            return material != null && material.shader != null &&
+                !Waifu2dGenerator.IsWaifu2dMaterialShader(material.shader);
+        }
+
+        [MenuItem(RevertMenu, false, 2001)]
+        private static void RevertSelected(MenuCommand command)
+        {
+            Material material = GetContextMaterial(command);
+            Waifu2dGenerator.RevertMaterial(material);
+        }
+
+        [MenuItem(RevertMenu, true)]
+        private static bool CanRevertSelected(MenuCommand command)
+        {
+            Material material = GetContextMaterial(command);
+            return material != null && material.shader != null &&
+                Waifu2dGenerator.IsWaifu2dMaterialShader(material.shader);
+        }
+
+        private static Material GetContextMaterial(MenuCommand command)
+        {
+            Material material = command == null ? null : command.context as Material;
+            return material != null ? material : Selection.activeObject as Material;
+        }
+
     }
 }

@@ -91,6 +91,7 @@ namespace LyumaShader
             internal bool IsVariant;
             internal bool IsOfficialLilToon;
             internal bool IsCustom;
+            internal bool IsDistanceVisibility;
             internal bool IsMotchiri;
             internal bool IsPoiyomi;
             internal bool IsThirdPartyShaderVariant;
@@ -502,6 +503,8 @@ namespace LyumaShader
                 MaterialUiInfo materialInfo = GetMaterialUiInfo(material);
                 Shader shader = materialInfo.Shader;
                 bool isCustom = materialInfo.IsCustom;
+                bool isDistanceVisibility =
+                    materialInfo.IsDistanceVisibility;
                 bool isMotchiri = materialInfo.IsMotchiri;
                 bool isThirdPartyShaderVariant =
                     materialInfo.IsThirdPartyShaderVariant;
@@ -526,7 +529,9 @@ namespace LyumaShader
                     typeof(Material),
                     false
                 );
-                string shaderType = isMotchiri
+                string shaderType = isDistanceVisibility
+                    ? "距离显示"
+                    : isMotchiri
                     ? "Motchiri*"
                     : isCustom
                         ? "Custom*"
@@ -605,45 +610,58 @@ namespace LyumaShader
 
                 if(canBecomeCustom)
                 {
-                    EditorGUI.BeginChangeCheck();
-                    bool merge = EditorGUILayout.ToggleLeft(
-                        isMotchiri
-                            ? "合并 Motchiri Shader"
-                            : isCustom
-                                ? "合并 lilToon Custom Shader"
-                                : "构建时如变为 lilToon Custom Shader 则合并",
-                        rule.MergeCustomShader
-                    );
-                    if(EditorGUI.EndChangeCheck())
+                    if(isDistanceVisibility)
                     {
-                        RecordConfiguration(configuration, "修改 Waifu2d Custom Shader 规则");
-                        rule.MergeCustomShader = merge;
-                        if(merge && rule.Convert) PrepareConfiguredShader(rule);
-                        SaveConfiguration(configuration);
+                        EditorGUILayout.HelpBox(
+                            "已适配 lilToon 距离显示，构建时会自动保留距离显示功能。",
+                            MessageType.Info
+                        );
                     }
-
-                    using(new EditorGUI.DisabledScope(
-                        !isMotchiri || !rule.MergeCustomShader))
+                    else
                     {
                         EditorGUI.BeginChangeCheck();
-                        GUIContent keepLogicLabel = isMotchiri
-                            ? new GUIContent(
-                                "2D 模式启用 Motchiri 变形",
-                                "关闭后 Motchiri 仅在 3D 状态生效。"
-                            )
-                            : new GUIContent(
-                                "2D 模式启用原着色器顶点逻辑",
-                                "当前着色器使用自动兼容模式。"
-                            );
-                        bool keepLogic = EditorGUILayout.ToggleLeft(
-                            keepLogicLabel,
-                            rule.EnableCustomLogicIn2D
+                        bool merge = EditorGUILayout.ToggleLeft(
+                            isMotchiri
+                                ? "合并 Motchiri Shader"
+                                : isCustom
+                                    ? "合并 lilToon Custom Shader"
+                                    : "构建时如变为 lilToon Custom Shader 则合并",
+                            rule.MergeCustomShader
                         );
                         if(EditorGUI.EndChangeCheck())
                         {
-                            RecordConfiguration(configuration, "修改 Waifu2d 顶点逻辑规则");
-                            rule.EnableCustomLogicIn2D = keepLogic;
+                            RecordConfiguration(configuration, "修改 Waifu2d Custom Shader 规则");
+                            rule.MergeCustomShader = merge;
+                            if(merge && rule.Convert) PrepareConfiguredShader(rule);
                             SaveConfiguration(configuration);
+                        }
+                    }
+
+                    if(!isDistanceVisibility)
+                    {
+                        using(new EditorGUI.DisabledScope(
+                            !isMotchiri || !rule.MergeCustomShader))
+                        {
+                            EditorGUI.BeginChangeCheck();
+                            GUIContent keepLogicLabel = isMotchiri
+                                ? new GUIContent(
+                                    "2D 模式启用 Motchiri 变形",
+                                    "关闭后 Motchiri 仅在 3D 状态生效。"
+                                )
+                                : new GUIContent(
+                                    "2D 模式启用原着色器顶点逻辑",
+                                    "当前着色器使用自动兼容模式。"
+                                );
+                            bool keepLogic = EditorGUILayout.ToggleLeft(
+                                keepLogicLabel,
+                                rule.EnableCustomLogicIn2D
+                            );
+                            if(EditorGUI.EndChangeCheck())
+                            {
+                                RecordConfiguration(configuration, "修改 Waifu2d 顶点逻辑规则");
+                                rule.EnableCustomLogicIn2D = keepLogic;
+                                SaveConfiguration(configuration);
+                            }
                         }
                     }
                 }
@@ -931,6 +949,10 @@ namespace LyumaShader
                 IsMaterialScheduledForMotchiri(material);
             bool isCustom = shader != null &&
                 GenericLilCustomWaifu2dAdapter.IsSupported(shader);
+            bool isDistanceVisibility = shader != null &&
+                GenericLilCustomWaifu2dAdapter.IsDistanceVisibilityShader(
+                    shader
+                );
             bool isMotchiri = shader != null &&
                 shader.name.IndexOf(
                     "motchiri",
@@ -949,11 +971,13 @@ namespace LyumaShader
                 IsOfficialLilToon = shader != null &&
                     LilToonWaifu2dAdapter.IsSupported(shader),
                 IsCustom = isCustom,
+                IsDistanceVisibility = isDistanceVisibility,
                 IsMotchiri = isMotchiri,
                 IsPoiyomi = shader != null &&
                     PoiyomiWaifu2dAdapter.IsSupported(shader),
                 IsThirdPartyShaderVariant =
-                    isCustom || scheduledForMotchiri,
+                    (isCustom || scheduledForMotchiri) &&
+                    !isDistanceVisibility,
                 CanBecomeCustom = isCustom ||
                     (shader != null &&
                         LilToonWaifu2dAdapter.IsSupported(shader))
@@ -1133,6 +1157,7 @@ namespace LyumaShader
         {
             bool thirdPartyShaderVariant =
                 IsThirdPartyShaderVariant(material);
+            MaterialUiInfo materialInfo = GetMaterialUiInfo(material);
             return new LyumaWaifu2dAvatarConfig.MaterialRule
             {
                 Material = material,
@@ -1140,7 +1165,7 @@ namespace LyumaShader
                 // MergeCustomShader is relevant only to detected Custom
                 // Shader families. Convert remains the independent switch
                 // that controls whether the material participates.
-                MergeCustomShader = thirdPartyShaderVariant
+                MergeCustomShader = materialInfo.IsCustom
             };
         }
 
@@ -3816,7 +3841,9 @@ namespace LyumaShader
             if(shader == null) return false;
             if(IsWaifu2dShader(shader)) return true;
             if(GenericLilCustomWaifu2dAdapter.IsSupported(shader) &&
-                !rule.MergeCustomShader)
+                !rule.MergeCustomShader &&
+                !GenericLilCustomWaifu2dAdapter.
+                    IsDistanceVisibilityShader(shader))
             {
                 return true;
             }

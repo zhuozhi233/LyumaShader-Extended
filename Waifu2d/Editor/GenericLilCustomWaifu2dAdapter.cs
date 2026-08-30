@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
@@ -23,9 +24,11 @@ namespace LyumaShader
         private const string InsertBlockFileName = "lilCustomShaderInsert.lilblock";
         private const string CustomHlslFileName = "custom.hlsl";
         private const string BridgeFileName = "lyuma_waifu2d_bridge.hlsl";
+        private const string DistanceVisibilityFamilyName =
+            "DistanceVisibility/lilToon";
         internal const string MotchiriContactOffsetProperty =
             "_lyuma_motchiri_contact_offset_os";
-        private const int GeneratorVersion = 10;
+        private const int GeneratorVersion = 11;
 
         private static readonly Dictionary<int, FamilyManifest> SourceFamilyCache =
             new Dictionary<int, FamilyManifest>();
@@ -60,6 +63,28 @@ namespace LyumaShader
             return TryGetGeneratedManifest(shader, out ignored);
         }
 
+        internal static bool IsDistanceVisibilityShader(Shader shader)
+        {
+            if(shader == null ||
+                shader.FindPropertyIndex("_DV_Version") < 0)
+            {
+                return false;
+            }
+
+            FamilyManifest manifest;
+            if(!TryGetGeneratedManifest(shader, out manifest) &&
+                !TryDiscoverSourceFamily(shader, out manifest))
+            {
+                return false;
+            }
+            return manifest != null &&
+                string.Equals(
+                    manifest.sourceFamilyName,
+                    DistanceVisibilityFamilyName,
+                    StringComparison.Ordinal
+                );
+        }
+
         internal static Shader GetWaifu2dShader(Shader source)
         {
             if(source == null) return null;
@@ -87,7 +112,7 @@ namespace LyumaShader
 
             FamilyManifest generatedManifest = EnsureGeneratedFamily(sourceManifest);
             if(generatedManifest == null) return null;
-            return FindMappedShader(source.name, generatedManifest.sourceFamilyName, generatedManifest.generatedFamilyName);
+            return FindMappedShader(source.name, generatedManifest.sourceFamilyName, generatedManifest.generatedFamilyName, generatedManifest.outputFolder);
         }
 
         internal static Shader GetWaifu2dShaderForFamily(Shader source, string requiredSourceFolder)
@@ -103,14 +128,14 @@ namespace LyumaShader
             FamilyManifest generatedManifest = EnsureGeneratedFamily(sourceManifest);
             return generatedManifest == null
                 ? null
-                : FindMappedShader(source.name, generatedManifest.sourceFamilyName, generatedManifest.generatedFamilyName);
+                : FindMappedShader(source.name, generatedManifest.sourceFamilyName, generatedManifest.generatedFamilyName, generatedManifest.outputFolder);
         }
 
         internal static Shader GetOriginalShader(Shader source)
         {
             FamilyManifest manifest;
             if(!TryGetGeneratedManifest(source, out manifest)) return null;
-            return FindMappedShader(source.name, manifest.generatedFamilyName, manifest.sourceFamilyName);
+            return FindMappedShader(source.name, manifest.generatedFamilyName, manifest.sourceFamilyName, manifest.sourceFolder);
         }
 
         internal static bool TryGetManifest(Shader shader, out FamilyManifest manifest)
@@ -219,6 +244,15 @@ namespace LyumaShader
                 Directory.CreateDirectory(GeneratedRoot);
                 CopyDirectoryWithoutMeta(sourceManifest.sourceFolder, sourceManifest.outputFolder);
 
+                if(IsDistanceVisibilityFamily(sourceManifest))
+                {
+                    RemapDistanceVisibilityContainers(
+                        sourceManifest.outputFolder,
+                        sourceManifest.sourceFamilyName,
+                        sourceManifest.generatedFamilyName
+                    );
+                }
+
                 string generatedDataPath = sourceManifest.outputFolder + "/" + DataBlockFileName;
                 string generatedPropertiesPath = sourceManifest.outputFolder + "/" + PropertiesBlockFileName;
                 string generatedInsertPath = sourceManifest.outputFolder + "/" + InsertBlockFileName;
@@ -316,13 +350,26 @@ namespace LyumaShader
             }
         }
 
-        private static Shader FindMappedShader(string shaderName, string fromFamily, string toFamily)
+        private static Shader FindMappedShader(string shaderName, string fromFamily, string toFamily, string searchFolder)
         {
             int familyIndex = shaderName.IndexOf(fromFamily, StringComparison.Ordinal);
             if(familyIndex < 0) return null;
             string mappedName = shaderName.Substring(0, familyIndex) + toFamily +
                 shaderName.Substring(familyIndex + fromFamily.Length);
-            return Shader.Find(mappedName);
+            Shader mappedShader = Shader.Find(mappedName);
+            if(mappedShader != null || string.IsNullOrEmpty(searchFolder) || !Directory.Exists(searchFolder))
+                return mappedShader;
+
+            foreach(string filePath in Directory.GetFiles(searchFolder, "*.lilcontainer", SearchOption.TopDirectoryOnly))
+            {
+                string assetPath = NormalizePath(filePath);
+                mappedShader = AssetDatabase.LoadAssetAtPath<Shader>(assetPath);
+                if(mappedShader == null)
+                    mappedShader = AssetDatabase.LoadAllAssetsAtPath(assetPath).OfType<Shader>().FirstOrDefault();
+                if(mappedShader != null && string.Equals(mappedShader.name, mappedName, StringComparison.Ordinal))
+                    return mappedShader;
+            }
+            return null;
         }
 
         private static string FindFamilyFile(string startFolder, string fileName)
@@ -465,6 +512,48 @@ namespace LyumaShader
         {
             return manifest != null &&
                 string.Equals(manifest.sourceFamilyName, "motchiri", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsDistanceVisibilityFamily(
+            FamilyManifest manifest
+        )
+        {
+            return manifest != null &&
+                string.Equals(
+                    manifest.sourceFamilyName,
+                    DistanceVisibilityFamilyName,
+                    StringComparison.Ordinal
+                );
+        }
+
+        private static void RemapDistanceVisibilityContainers(
+            string outputFolder,
+            string sourceFamilyName,
+            string generatedFamilyName
+        )
+        {
+            foreach(string containerPath in Directory.GetFiles(
+                outputFolder,
+                "*.lilcontainer",
+                SearchOption.AllDirectories))
+            {
+                string content = File.ReadAllText(containerPath);
+                if(content.IndexOf(
+                    sourceFamilyName,
+                    StringComparison.Ordinal) < 0)
+                {
+                    continue;
+                }
+                content = content.Replace(
+                    sourceFamilyName,
+                    generatedFamilyName
+                );
+                File.WriteAllText(
+                    containerPath,
+                    content,
+                    new UTF8Encoding(false)
+                );
+            }
         }
 
         /// <summary>

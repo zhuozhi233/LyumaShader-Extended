@@ -52,8 +52,8 @@ jobs:
           body: |
             VPM/VCC 软件包。
 
-            - 稳定锚点支持指定父对象；未指定时显示并使用当前模型 Root
-            - 2D 参数改为自动读取当前模型配置并在修改后立即保存，不再需要手动写入或重新读取
+            - 适配 lilToon 距离显示；两个功能可按任意顺序添加或移除，并保留另一项功能
+            - 材质球右键菜单同时提供 Waifu2d 的转换与恢复入口，并按当前材质状态控制可用性
             - ZIP 根目录包含 package.json，可直接通过 VCC 安装
           files: |
             release/${{ env.packageName }}-${{ steps.version.outputs.version }}.zip
