@@ -11,3 +11,6 @@ UserSettings/
 GeneratedAnimations/
 Waifu2d/Generated/
 release/
+
+# Unity may regenerate this file locally; do not publish it
+LICENSE.meta
